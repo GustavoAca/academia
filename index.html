@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="theme-color" content="#2447d6">
-  <title>Treino Offline</title>
+  <title>Treino Set–Dez 2026</title>
   <link rel="manifest" href="manifest.json">
   <link rel="stylesheet" href="css/styles.css">
 </head>
@@ -29,25 +29,9 @@
   </script>
   
   <script type="module">
-    import './js/db.js';
+    // Importing app.js wires the module graph and starts the application
+    // (see the DOMContentLoaded/readyState check at the end of js/app.js).
     import './js/app.js';
-    import './js/workout-service.js';
-    import './js/backup-service.js';
-    
-    // Initialize application after all modules load
-    document.addEventListener('DOMContentLoaded', initApp);
-    
-    async function initApp() {
-      try {
-        await initIndexedDB();
-        await migrateData();
-        updateDBVersion();
-        renderInitialScreen();
-      } catch (err) {
-        console.error('Erro na inicialização:', err);
-        showToast('Erro ao iniciar aplicação');
-      }
-    }
   </script>
 
   <script>

@@ -79,6 +79,41 @@ async function initializeWorkoutsFromPlano(plano) {
 }
 
 /**
+ * Link exercises to their workouts based on PLANO data.
+ * Creates workout_exercises rows only for workouts that have no link yet,
+ * so it is safe to call on every startup.
+ * @param {Object} plano - The PLANO object with workout definitions
+ * @returns {Promise<void>}
+ */
+async function initializeWorkoutExercisesFromPlano(plano) {
+  const workouts = await getAllWorkouts();
+  const exercises = await getAllExercises();
+
+  for (const workout of workouts) {
+    const existing = await getWorkoutExercises(workout.id);
+    if (existing.length > 0) continue;
+
+    const dia = plano[workout.diaSemana];
+    if (!dia || !Array.isArray(dia.ex)) continue;
+
+    for (let i = 0; i < dia.ex.length; i++) {
+      const [nome, , series, min, max] = dia.ex[i];
+      const exercise = exercises.find(e => e.nome === nome);
+      if (!exercise) continue;
+
+      await saveWorkoutExercise({
+        treinoId: workout.id,
+        exercicioId: exercise.id,
+        ordem: i + 1,
+        seriesPlanejadas: series,
+        repeticoesMinimas: min,
+        repeticoesMaximas: max
+      });
+    }
+  }
+}
+
+/**
  * Get the workout for today based on the current day of week.
  * @param {number} currentDay - Current day (0=Domingo, 1=Segunda, etc.)
  * @returns {Promise<Object|null>}
@@ -234,12 +269,13 @@ async function getExecutionsByWorkout(workoutId) {
   const results = [];
   return new Promise((resolve, reject) => {
     request.onsuccess = () => {
-      let cursor = request.result;
-      while (cursor) {
+      const cursor = request.result;
+      if (cursor) {
         results.push(cursor.value);
-        cursor = cursor.continue();
+        cursor.continue();
+      } else {
+        resolve(results);
       }
-      resolve(results);
     };
     request.onerror = () => reject(request.error);
   });
@@ -508,24 +544,35 @@ async function importData(backupData, overwrite = false) {
   const database = await initDB();
   const stores = ['exercises', 'workouts', 'workout_exercises', 'executions', 'measurements', 'settings'];
   
-  // Count existing records
+  // Count existing records (read the result inside onsuccess, never synchronously)
   const existingCounts = {};
-  for (const storeName of stores) {
+  {
     const transaction = database.transaction(stores, 'readonly');
-    const store = transaction.objectStore(storeName);
-    const request = store.count();
-    existingCounts[storeName] = request.result;
+    for (const storeName of stores) {
+      const request = transaction.objectStore(storeName).count();
+      request.onsuccess = () => { existingCounts[storeName] = request.result; };
+    }
+    await new Promise((resolve, reject) => {
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
   }
   
   // Clear and import, or just add if not overwriting
   const importPromises = [];
   
   if (overwrite) {
-    // Clear all data first
+    // Clear all data first and wait, so later adds land on empty stores
+    const clearTransaction = database.transaction(stores, 'readwrite');
     for (const storeName of stores) {
-      const transaction = database.transaction(stores, 'readwrite');
-      transaction.objectStore(storeName).clear();
+      clearTransaction.objectStore(storeName).clear();
     }
+    await new Promise((resolve, reject) => {
+      clearTransaction.oncomplete = () => resolve();
+      clearTransaction.onerror = () => reject(clearTransaction.error);
+      clearTransaction.onabort = () => reject(clearTransaction.error);
+    });
   }
   
   // Import exercises
@@ -572,14 +619,9 @@ async function importData(backupData, overwrite = false) {
     const transaction = database.transaction('measurements', 'readwrite');
     const store = transaction.objectStore('measurements');
     
-    backupData.measurements.forEach((med, index) => {
-      const request = store.add({
-        data: med.data,
-        peso: med.peso,
-        busto: med.busto,
-        abdomen: med.abdomen,
-        culote: med.culote
-      });
+    backupData.measurements.forEach(med => {
+      const { id, createdAt, updatedAt, ...record } = med || {};
+      const request = store.add({ ...record });
       importPromises.push(new Promise((resolve, reject) => {
         request.onsuccess = () => resolve();
         request.onerror = () => reject(request.error);
@@ -592,16 +634,9 @@ async function importData(backupData, overwrite = false) {
     const transaction = database.transaction('executions', 'readwrite');
     const store = transaction.objectStore('executions');
     
-    backupData.executions.forEach((exec, index) => {
-      const request = store.add({
-        data: exec.data,
-        treinoId: exec.treinoId,
-        exercicioId: exec.exercicioId,
-        serie: exec.serie,
-        carga: exec.carga,
-        repeticoes: exec.repeticoes,
-        observacao: exec.observacao
-      });
+    backupData.executions.forEach(exec => {
+      const { id, createdAt, updatedAt, ...record } = exec || {};
+      const request = store.add({ ...record });
       importPromises.push(new Promise((resolve, reject) => {
         request.onsuccess = () => resolve();
         request.onerror = () => reject(request.error);
@@ -611,11 +646,13 @@ async function importData(backupData, overwrite = false) {
   
   await Promise.all(importPromises);
   
+  const list = name => (Array.isArray(backupData[name]) ? backupData[name] : []);
+  
   return {
     success: true,
     message: 'Dados importados com sucesso',
     existingCounts,
-    imported: backupData.exercises.length + backupData.workouts.length + backupData.measurements.length + backupData.executions.length
+    imported: list('exercises').length + list('workouts').length + list('measurements').length + list('executions').length
   };
 }
 
@@ -685,6 +722,7 @@ function validateBackupFormat(backupData) {
 export {
   initializeExercisesFromPlano,
   initializeWorkoutsFromPlano,
+  initializeWorkoutExercisesFromPlano,
   getTodaysWorkout,
   getWorkoutExercisesWithDetails,
   registerSeriesExecution,

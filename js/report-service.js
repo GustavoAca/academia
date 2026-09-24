@@ -9,9 +9,16 @@ import {
   calculateExerciseVolume,
   calculateWorkoutVolume,
   getProgressionData,
-  checkStagnation
+  checkStagnation,
+  getMeasurementsEvolution
 } from './workout-service.js';
-import { getAllExercises, getAllWorkouts, getAllMeasurements, getMeasurementsEvolution } from './db.js';
+import {
+  initDB,
+  getAllExercises,
+  getAllWorkouts,
+  getAllMeasurements,
+  getWorkoutExercises
+} from './db.js';
 
 /* --- Volume Calculations --- */
 
@@ -211,12 +218,13 @@ async function getExecutionsByWorkout(workoutId) {
   const results = [];
   return new Promise((resolve, reject) => {
     request.onsuccess = () => {
-      let cursor = request.result;
-      while (cursor) {
+      const cursor = request.result;
+      if (cursor) {
         results.push(cursor.value);
-        cursor = cursor.continue();
+        cursor.continue();
+      } else {
+        resolve(results);
       }
-      resolve(results);
     };
     request.onerror = () => reject(request.error);
   });
@@ -240,15 +248,16 @@ async function getExecutionsByWorkoutAndExercise(workoutId, exercicioId) {
   const results = [];
   return new Promise((resolve, reject) => {
     request.onsuccess = () => {
-      let cursor = request.result;
-      while (cursor) {
+      const cursor = request.result;
+      if (cursor) {
         const exec = cursor.value;
         if (exec.exercicioId === exercicioId) {
           results.push(exec);
         }
-        cursor = cursor.continue();
+        cursor.continue();
+      } else {
+        resolve(results);
       }
-      resolve(results);
     };
     request.onerror = () => reject(request.error);
   });

@@ -1,58 +1,117 @@
 /**
- * Measurement Service - Handles body measurements (peso, busto, abdomen, culote).
- * 
- * Stores measurements in IndexedDB with date tracking.
- * Provides evolution calculations for reporting.
+ * Measurement Service - Handles body measurements recorded per day.
+ *
+ * Stores one record per day in IndexedDB with the same 15 fields
+ * used by the reference application (exemplo.html).
  */
 
-import { initDB, saveMeasurement, getAllMeasurements, getLatestMeasurement } from './db.js';
-
-/* --- State --- */
+import {
+  getAllMeasurements,
+  getLatestMeasurement,
+  getMeasurementByDate,
+  upsertMeasurement,
+  deleteMeasurementByDate
+} from './db.js';
 
 /**
- * Register new body measurements.
- * @param {Object} measurements - {peso, busto, abdomen, culote}
- * @param {string} [date] - Optional date (defaults to today YYYY-MM-DD)
- * @returns {Promise<Object>} Saved measurement record
+ * Measurement fields in the exact order shown by the Medidas screen.
+ * [campo, rótulo, unidade]
  */
-async function registerMeasurements(measurements, date = null) {
-  const today = date || new Date().toISOString().split('T')[0];
-  
-  // Validate required fields
-  if (!measurements.peso) {
-    throw new Error('Peso é obrigatório');
+const MED = [
+  ['peso', 'Peso', 'kg'],
+  ['gord', '% Gordura', '%'],
+  ['cint', 'Cintura', 'cm'],
+  ['busto', 'Busto', 'cm'],
+  ['abdomen', 'Abdômen', 'cm'],
+  ['culote', 'Culote', 'cm'],
+  ['quad', 'Quadril', 'cm'],
+  ['peit', 'Peito', 'cm'],
+  ['bd', 'Braço D', 'cm'],
+  ['be', 'Braço E', 'cm'],
+  ['cd', 'Coxa D', 'cm'],
+  ['ce', 'Coxa E', 'cm'],
+  ['pd', 'Panturrilha D', 'cm'],
+  ['pe', 'Panturrilha E', 'cm'],
+  ['pesc', 'Pescoço', 'cm']
+];
+
+/**
+ * Convert an input value to a number (supports comma decimals).
+ * @param {string|number} value
+ * @returns {number|null}
+ */
+function num(value) {
+  const n = parseFloat(String(value).replace(',', '.'));
+  return isNaN(n) ? null : n;
+}
+
+/**
+ * Save (or clear) the measurements of a given day.
+ * Clears the day when every field is empty, like the reference app does.
+ * @param {string} data - Date in YYYY-MM-DD format
+ * @param {Object} values - Raw values keyed by field name
+ * @returns {Promise<Object|null>} Saved record, or null when cleared
+ */
+async function saveMeasurements(data, values) {
+  const record = { data };
+  let preenchidos = 0;
+
+  for (const [campo] of MED) {
+    const raw = values[campo];
+    const valor = raw === undefined || raw === '' || raw === null ? null : num(raw);
+    record[campo] = valor;
+    if (valor !== null) preenchidos++;
   }
-  
-  return saveMeasurement({
-    data: today,
-    peso: Number(measurements.peso),
-    busto: measurements.busto !== undefined ? Number(measurements.busto) : null,
-    abdomen: measurements.abdomen !== undefined ? Number(measurements.abdomen) : null,
-    culote: measurements.culote !== undefined ? Number(measurements.culote) : null,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  });
+
+  if (preenchidos === 0) {
+    await deleteMeasurementByDate(data);
+    return null;
+  }
+
+  return upsertMeasurement(record);
+}
+
+/**
+ * Get one day's measurement record.
+ * @param {string} data - Date in YYYY-MM-DD format
+ * @returns {Promise<Object|null>}
+ */
+async function getMeasurementDay(data) {
+  return getMeasurementByDate(data);
+}
+
+/**
+ * Get the series of one field as [[date, value]] sorted ascending,
+ * ignoring days without that field.
+ * @param {string} campo - Field name
+ * @returns {Promise<Array>}
+ */
+async function serieMedida(campo) {
+  const measurements = await getAllMeasurements();
+
+  return measurements
+    .map(m => [m.data, m[campo] !== undefined && m[campo] !== null ? Number(m[campo]) : null])
+    .filter(par => par[1] !== null && !isNaN(par[1]))
+    .sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
 }
 
 /**
  * Get all measurements sorted by date descending (newest first).
- * @returns {Promise<Array>} Array of measurement records
+ * @returns {Promise<Array>}
  */
 async function getAllMeasurementsDesc() {
   const measurements = await getAllMeasurements();
-  
-  // Sort by date descending
+
   return measurements.sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime());
 }
 
 /**
  * Get measurements evolution data for reporting.
- * Calculates initial, current, and difference for each metric.
  * @returns {Promise<Object>}
  */
 async function getMeasurementsEvolution() {
   const measurements = await getAllMeasurementsDesc();
-  
+
   if (measurements.length === 0) {
     return {
       peso: { inicial: null, atual: null, diferenca: null },
@@ -61,17 +120,15 @@ async function getMeasurementsEvolution() {
       culote: { inicial: null, atual: null, diferenca: null }
     };
   }
-  
-  // First measurement (oldest in sorted desc = last chronologically)
+
   const first = measurements[measurements.length - 1];
-  // Last measurement (newest in sorted desc = most recent)
   const last = measurements[0];
-  
+
   const getValue = (measurement, key) => {
     const val = measurement[key];
-    return val !== null && !isNaN(val) ? Number(val) : null;
+    return val !== null && val !== undefined && !isNaN(val) ? Number(val) : null;
   };
-  
+
   return {
     peso: {
       inicial: getValue(first, 'peso'),
@@ -98,7 +155,7 @@ async function getMeasurementsEvolution() {
 
 /**
  * Get the latest measurement record.
- * @returns {Promise<Object>}
+ * @returns {Promise<Object|null>}
  */
 async function getLatestMeasurementRecord() {
   return getLatestMeasurement();
@@ -107,7 +164,11 @@ async function getLatestMeasurementRecord() {
 /* --- Public API --- */
 
 export {
-  registerMeasurements,
+  MED,
+  num,
+  saveMeasurements,
+  getMeasurementDay,
+  serieMedida,
   getAllMeasurementsDesc,
   getMeasurementsEvolution,
   getLatestMeasurementRecord

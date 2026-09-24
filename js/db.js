@@ -128,13 +128,13 @@ async function getAllExercises(filter = {}) {
     const results = [];
     return new Promise((resolve, reject) => {
       request.onsuccess = () => {
-        let cursor = request.result;
-        while (cursor) {
+        const cursor = request.result;
+        if (cursor) {
           results.push(cursor.value);
-          cursor = cursor.continue();
+          cursor.continue();
+        } else {
           resolve(results);
         }
-        if (!request.result) resolve(results);
       };
       request.onerror = () => reject(request.error);
     });
@@ -146,12 +146,13 @@ async function getAllExercises(filter = {}) {
     const results = [];
     return new Promise((resolve, reject) => {
       request.onsuccess = () => {
-        let cursor = request.result;
-        while (cursor) {
+        const cursor = request.result;
+        if (cursor) {
           results.push(cursor.value);
-          cursor = cursor.continue();
+          cursor.continue();
+        } else {
+          resolve(results);
         }
-        resolve(results);
       };
       request.onerror = () => reject(request.error);
     });
@@ -267,16 +268,17 @@ async function getAllWorkouts(diaSemana = null) {
     request = store.getAll();
   }
   
+  const results = [];
   return new Promise((resolve, reject) => {
     request.onsuccess = () => {
       if (diaSemana) {
-        const results = [];
-        let cursor = request.result;
-        while (cursor) {
+        const cursor = request.result;
+        if (cursor) {
           results.push(cursor.value);
-          cursor = cursor.continue();
+          cursor.continue();
+        } else {
+          resolve(results);
         }
-        resolve(results);
       } else {
         resolve(request.result);
       }
@@ -321,12 +323,13 @@ async function getWorkoutExercises(treinoId) {
   const results = [];
   return new Promise((resolve, reject) => {
     request.onsuccess = () => {
-      let cursor = request.result;
-      while (cursor) {
+      const cursor = request.result;
+      if (cursor) {
         results.push(cursor.value);
-        cursor = cursor.continue();
+        cursor.continue();
+      } else {
+        resolve(results);
       }
-      resolve(results);
     };
     request.onerror = () => reject(request.error);
   });
@@ -371,23 +374,142 @@ async function getExecutions(treinoId, exercicioId) {
   const results = [];
   return new Promise((resolve, reject) => {
     request.onsuccess = () => {
-      let cursor = request.result;
-      while (cursor) {
+      const cursor = request.result;
+      if (cursor) {
         const execution = cursor.value;
         if (execution.exercicioId === exercicioId) {
           results.push(execution);
         }
-        cursor = cursor.continue();
+        cursor.continue();
+      } else {
+        resolve(results);
       }
-      resolve(results);
     };
     request.onerror = () => reject(request.error);
   });
 }
 
 /**
+ * Get all executions performed on a specific day (YYYY-MM-DD).
+ * @param {string} data - Date in YYYY-MM-DD format
+ * @returns {Promise<Array>}
+ */
+async function getExecutionsByDate(data) {
+  const database = await initDB();
+  const transaction = database.transaction('executions', 'readonly');
+  const store = transaction.objectStore('executions');
+  const index = store.index('data');
+  const request = index.openCursor(IDBKeyRange.only(data));
+
+  const results = [];
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (cursor) {
+        results.push(cursor.value);
+        cursor.continue();
+      } else {
+        resolve(results);
+      }
+    };
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Find one execution by its natural key (day, workout, exercise, set).
+ * @returns {Promise<Object|null>}
+ */
+async function findExecution(data, treinoId, exercicioId, serie) {
+  const executions = await getExecutionsByDate(data);
+  return executions.find(exec =>
+    exec.treinoId === treinoId &&
+    exec.exercicioId === exercicioId &&
+    exec.serie === serie
+  ) || null;
+}
+
+/**
+ * Create or update an execution identified by (data, treinoId, exercicioId, serie).
+ * The lookup and the write happen in a single transaction, so concurrent
+ * saves for the same key can never create duplicates.
+ * @param {Object} execution
+ * @returns {Promise<void>}
+ */
+async function upsertExecution(execution) {
+  const database = await initDB();
+  const transaction = database.transaction('executions', 'readwrite');
+  const store = transaction.objectStore('executions');
+  const index = store.index('data');
+  const request = index.openCursor(IDBKeyRange.only(execution.data));
+
+  let existing = null;
+  request.onsuccess = () => {
+    const cursor = request.result;
+    if (!cursor) {
+      const record = existing
+        ? { ...existing, ...execution, id: existing.id, updatedAt: new Date().toISOString() }
+        : { ...execution, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      store.put(record);
+      return;
+    }
+
+    const value = cursor.value;
+    if (value.treinoId === execution.treinoId &&
+        value.exercicioId === execution.exercicioId &&
+        value.serie === execution.serie) {
+      existing = value;
+    }
+    cursor.continue();
+  };
+
+  return new Promise((resolve, reject) => {
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+}
+
+/**
+ * Delete an execution identified by (data, treinoId, exercicioId, serie).
+ * @param {string} data - Date in YYYY-MM-DD format
+ * @param {number} treinoId
+ * @param {number} exercicioId
+ * @param {number} serie
+ * @returns {Promise<void>}
+ */
+async function deleteExecution(data, treinoId, exercicioId, serie) {
+  const database = await initDB();
+  const transaction = database.transaction('executions', 'readwrite');
+  const store = transaction.objectStore('executions');
+  const index = store.index('data');
+  const request = index.openCursor(IDBKeyRange.only(data));
+
+  let existing = null;
+  request.onsuccess = () => {
+    const cursor = request.result;
+    if (!cursor) {
+      if (existing) store.delete(existing.id);
+      return;
+    }
+
+    const value = cursor.value;
+    if (value.treinoId === treinoId && value.exercicioId === exercicioId && value.serie === serie) {
+      existing = value;
+    }
+    cursor.continue();
+  };
+
+  return new Promise((resolve, reject) => {
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+}
+
+/**
  * Save measurement data.
- * @param {Object} measurement - Measurement data {data, peso, busto, abdomen, culote}
+ * @param {Object} measurement - Measurement data {data, peso, busto, abdomen, culote, ...}
  * @returns {Promise<Object>}
  */
 async function saveMeasurement(measurement) {
@@ -422,12 +544,14 @@ async function getAllMeasurements() {
   const results = [];
   return new Promise((resolve, reject) => {
     request.onsuccess = () => {
-      let cursor = request.result;
-      while (cursor) {
-        results.unshift(cursor.value); // Prepend to get newest first
-        cursor = cursor.continue();
+      const cursor = request.result;
+      if (cursor) {
+        // 'prev' iterates newest first, so pushing keeps descending order
+        results.push(cursor.value);
+        cursor.continue();
+      } else {
+        resolve(results);
       }
-      resolve(results);
     };
     request.onerror = () => reject(request.error);
   });
@@ -440,6 +564,88 @@ async function getAllMeasurements() {
 async function getLatestMeasurement() {
   const measurements = await getAllMeasurements();
   return measurements.length > 0 ? measurements[0] : null;
+}
+
+/**
+ * Get the measurement recorded on a specific day (YYYY-MM-DD).
+ * @param {string} data - Date in YYYY-MM-DD format
+ * @returns {Promise<Object|null>}
+ */
+async function getMeasurementByDate(data) {
+  const database = await initDB();
+  const transaction = database.transaction('measurements', 'readonly');
+  const index = transaction.objectStore('measurements').index('data');
+  const request = index.get(IDBKeyRange.only(data));
+
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Create or update the measurement of a given day (atomic read + write).
+ * @param {Object} measurement
+ * @returns {Promise<void>}
+ */
+async function upsertMeasurement(measurement) {
+  const database = await initDB();
+  const transaction = database.transaction('measurements', 'readwrite');
+  const store = transaction.objectStore('measurements');
+  const index = store.index('data');
+  const request = index.openCursor(IDBKeyRange.only(measurement.data));
+
+  let existing = null;
+  request.onsuccess = () => {
+    const cursor = request.result;
+    if (!cursor) {
+      const record = existing
+        ? { ...existing, ...measurement, id: existing.id, updatedAt: new Date().toISOString() }
+        : { ...measurement, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      store.put(record);
+      return;
+    }
+
+    existing = cursor.value;
+    cursor.continue();
+  };
+
+  return new Promise((resolve, reject) => {
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+}
+
+/**
+ * Delete the measurement recorded on a given day (atomic read + write).
+ * @param {string} data - Date in YYYY-MM-DD format
+ * @returns {Promise<void>}
+ */
+async function deleteMeasurementByDate(data) {
+  const database = await initDB();
+  const transaction = database.transaction('measurements', 'readwrite');
+  const store = transaction.objectStore('measurements');
+  const index = store.index('data');
+  const request = index.openCursor(IDBKeyRange.only(data));
+
+  let existing = null;
+  request.onsuccess = () => {
+    const cursor = request.result;
+    if (!cursor) {
+      if (existing) store.delete(existing.id);
+      return;
+    }
+
+    existing = cursor.value;
+    cursor.continue();
+  };
+
+  return new Promise((resolve, reject) => {
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
 }
 
 /**
@@ -524,9 +730,16 @@ export {
   getWorkoutExercises,
   saveExecution,
   getExecutions,
+  getExecutionsByDate,
+  findExecution,
+  upsertExecution,
+  deleteExecution,
   saveMeasurement,
   getAllMeasurements,
   getLatestMeasurement,
+  getMeasurementByDate,
+  upsertMeasurement,
+  deleteMeasurementByDate,
   saveSetting,
   getSetting,
   clearAllData,

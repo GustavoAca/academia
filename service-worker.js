@@ -7,7 +7,8 @@
  * Handles GitHub Pages subdirectory deployment correctly.
  */
 
-const CACHE_VERSION = 'treino-cache-v1';
+// Bump the version whenever cached assets change so clients drop stale copies.
+const CACHE_VERSION = 'treino-cache-v4';
 let cacheName = `treino-${CACHE_VERSION}`;
 
 // We'll determine the base path dynamically during install
@@ -43,11 +44,15 @@ self.addEventListener('install', (event) => {
         'css/styles.css',
         'js/app.js',
         'js/db.js',
+        'js/plano.js',
+        'js/dados.js',
         'js/workout-service.js',
+        'js/measurement-service.js',
+        'js/report-service.js',
         'js/backup-service.js',
+        'js/timer-service.js',
         'icons/icon-192.png',
         'icons/icon-512.png',
-        'favicon.ico',
       ];
 
       // Cache each asset

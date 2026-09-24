@@ -2,25 +2,32 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
 
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
 
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
     steps:
-      # 1. Fazer checkout do repositório
+      # 1. Checkout
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 2. Validar a estrutura do projeto
+      # 2. Validar estrutura
       - name: Validar estrutura
         run: |
           echo "Validando estrutura do projeto..."
-          
-          # Verificar arquivos essenciais
+
           REQUIRED_FILES=(
             "index.html"
             "manifest.json"
@@ -30,94 +37,74 @@ jobs:
             "js/app.js"
             "js/workout-service.js"
           )
-          
+
           for file in "${REQUIRED_FILES[@]}"; do
             if [ ! -f "$file" ]; then
               echo "❌ Arquivo faltando: $file"
               exit 1
             fi
           done
-          
+
           echo "✅ Estrutura validada com sucesso"
 
-      # 3. Executar testes JavaScript (basic syntax check)
+      # 3. Verificar sintaxe JavaScript
       - name: Verificar sintaxe JavaScript
         run: |
           echo "Verificando sintaxe JavaScript..."
-          
-          # Verificar se Node.js está disponível para lint
-          if command -v node &> /dev/null; then
-            # Verificar sintaxe básica dos arquivos JS
-            for jsfile in js/*.js; do
-              if [ -f "$jsfile" ]; then
-                node -c "$jsfile" 2>/dev/null || echo "Aviso: Verificação de sintaxe para $jsfile"
-              fi
-            done
-            echo "✅ Verificação de sintaxe concluída"
-          else
-            echo "⚠️ Node.js não disponível, pulando verificação de sintaxe"
-          fi
 
-      # 4. Verificar arquivos essenciais e PWA configuration
+          for jsfile in js/*.js; do
+            if [ -f "$jsfile" ]; then
+              echo "Verificando $jsfile"
+
+              if ! node --check "$jsfile"; then
+                echo "❌ Erro de sintaxe em $jsfile"
+                exit 1
+              fi
+            fi
+          done
+
+          echo "✅ Sintaxe JavaScript válida"
+
+      # 4. Verificar configuração PWA
       - name: Verificar configuração PWA
         run: |
           echo "Verificando configuração PWA..."
-          
-          # Verificar manifest.json
-          if [ -f "manifest.json" ]; then
-            # Verificar campos obrigatórios
-            REQUIRED_MANIFEST=(
-              "name"
-              "short_name"
-              "display"
-              "start_url"
-              "icons"
-            )
-            
-            for field in "${REQUIRED_MANIFEST[@]}"; do
-              if ! grep -q "\"$field\"" manifest.json; then
-                echo "⚠️ Campo faltando no manifest.json: $field"
-              fi
-            done
-            echo "✅ manifest.json verificado"
-          else
-            echo "❌ manifest.json não encontrado"
-            exit 1
-          fi
-          
-          # Verificar service worker
-          if [ -f "service-worker.js" ]; then
-            echo "✅ service-worker.js encontrado"
-          else
+
+          REQUIRED_MANIFEST=(
+            "name"
+            "short_name"
+            "display"
+            "start_url"
+            "icons"
+          )
+
+          for field in "${REQUIRED_MANIFEST[@]}"; do
+            if ! grep -q "\"$field\"" manifest.json; then
+              echo "❌ Campo faltando no manifest.json: $field"
+              exit 1
+            fi
+          done
+
+          echo "✅ manifest.json verificado"
+
+          if [ ! -f "service-worker.js" ]; then
             echo "❌ service-worker.js não encontrado"
             exit 1
           fi
 
-      # 5. Publicar no GitHub Pages
+          echo "✅ service-worker.js encontrado"
+
+      # 5. Configurar GitHub Pages
       - name: Configurar Pages
         uses: actions/configure-pages@v5
-        with:
-          # Habilitar o GitHub Pages para este repositório
-          enablement: enable
 
-      # 6. Se o passo anterior falhar, descomente abaixo para habilitar manualmente:
-      # - name: Habilitar GitHub Pages manualmente
-      #   run: |
-      #     gh api repos/:owner/:repo/pages -X PUT \
-      #       -f "base_branch=main" \
-      #       -f "cname=" \
-      #       -f "grant_access_to_organization=true" \
-      #       -f "source.branch=main" \
-      #       -f "source.repository= :repo" \
-      #       -f "template_directory=/" \
-      #       -f "visibility=public"
-
+      # 6. Criar artifact
       - name: Upload artifact for GitHub Pages
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v4
         with:
-          # Raiz do repositório (arquivos do site)
-          path: '.'
+          path: .
 
+      # 7. Deploy
       - name: Deploy para GitHub Pages
-        id: deploy
+        id: deployment
         uses: actions/deploy-pages@v4

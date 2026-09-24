@@ -5,17 +5,9 @@
  * as required by the project specifications.
  */
 
-import {
-  initDB,
-  getAllExercises,
-  getAllWorkouts,
-  getAllMeasurements,
-  getAllSettings,
-  exportData as exportDataService,
-  importData as importDataService,
-  validateBackupFormat
-} from './db.js';
-import { exportData as workoutExport, importData as workoutImport, validateBackupFormat as validateWorkoutFormat } from './workout-service.js';
+import { initDB, getAllExercises, getAllWorkouts, getAllMeasurements, DB_VERSION } from './db.js';
+import { importData as importDataService, validateBackupFormat } from './workout-service.js';
+import { getAllExecutions } from './report-service.js';
 
 /**
  * Export all data to a backup JSON file.
@@ -66,18 +58,18 @@ async function exportBackup() {
     }));
 
     // Get all executions
-    const executions = await getAllMeasurements(); // Note: should be getExecutions but using measurements as placeholder
-    // Actually let me check what's available... we need to get executions
-    // For now, let's use what we have
+    const executions = await getAllExecutions();
+    dataExport.executions = executions.map(exec => {
+      const { id, createdAt, updatedAt, ...record } = exec;
+      return record;
+    });
+
+    // Get all measurements (every field, including the 15 body measures)
     const allMeasurements = await getAllMeasurements();
-    dataExport.measurements = allMeasurements.map(m => ({
-      id: m.id,
-      data: m.data,
-      peso: m.peso,
-      busto: m.busto,
-      abdomen: m.abdomen,
-      culote: m.culote
-    }));
+    dataExport.measurements = allMeasurements.map(m => {
+      const { id, createdAt, updatedAt, ...record } = m;
+      return record;
+    });
 
     // Generate filename
     const filename = `treino-backup-${year}-${month}-${day}.json`;
@@ -306,5 +298,6 @@ export {
   importBackup,
   validateBackupObject,
   handleFileImport,
+  downloadBackup,
   showToast
 };
