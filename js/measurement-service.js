@@ -68,7 +68,8 @@ async function saveMeasurements(data, values) {
     return null;
   }
 
-  return upsertMeasurement(record);
+  await upsertMeasurement(record);
+  return record;
 }
 
 /**

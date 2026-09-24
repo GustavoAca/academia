@@ -27,9 +27,8 @@ import {
   getAllMeasurementsDesc
 } from './measurement-service.js';
 import { getAllExecutions } from './report-service.js';
-import { exportBackup, downloadBackup } from './backup-service.js';
+import { exportBackup, importBackup, downloadBackup } from './backup-service.js';
 import { PLANO } from './plano.js';
-import { DADOS } from './dados.js';
 
 /* --- Constants (same as exemplo.html) --- */
 
@@ -104,7 +103,6 @@ async function initApp() {
     await seedFromPlano();
     notas = (await getSetting('notas')) || {};
     await migrateFromLocalStorage();
-    await importarDadosDeReferencia();
     await loadCatalogo();
     posicaoInicial();
     await carregarLogDoDia();
@@ -344,39 +342,85 @@ async function migrateFromLocalStorage() {
   }
 }
 
-const DADOS_FLAG = 'imported_dados_exemplo_v1';
+/* --- Manual file import (Relatório screen) --- */
 
 /**
- * Import the data that was already filled in exemplo.html (see js/dados.js).
- * Runs once, after the localStorage migration; executions are upserted, so
- * re-running can never duplicate rows.
+ * Read the picked file as JSON. Also accepts an HTML file with the embedded
+ * <script id="dados"> JSON used by exemplo.html.
+ * @param {string} texto
+ * @returns {Object}
+ */
+function extrairJson(texto) {
+  const embutido = texto.match(/<script[^>]*id="dados"[^>]*>([\s\S]*?)<\/script>/);
+  return JSON.parse(embutido ? embutido[1] : texto);
+}
+
+/**
+ * Import a file into IndexedDB and refresh the UI.
+ * tipo 'backup' accepts only a .json exported by this app (importBackup);
+ * tipo 'exemplo' accepts the { log, med, notas } format (.json/.html) filled
+ * in exemplo.html.
+ * @param {File} file
+ * @param {'backup'|'exemplo'} tipo
+ * @returns {Promise<string>} Message to show to the user
+ */
+async function importarArquivo(file, tipo) {
+  const dados = extrairJson(await file.text());
+
+  if (tipo === 'backup') {
+    if (dados && (dados.log || dados.med || dados.notas)) {
+      throw new Error('Este arquivo é dos dados do exemplo. Use "Importar dados do exemplo".');
+    }
+    const resultado = await importBackup(dados);
+    if (!resultado || !resultado.success) {
+      throw new Error((resultado && resultado.error) || 'Falha ao importar o backup');
+    }
+    await atualizarAposImportacao();
+    return `Backup importado: ${resultado.imported} registros`;
+  }
+
+  if (dados && (dados.log || dados.med || dados.notas)) {
+    const { series, medidas } = await importarDadosAntigos(
+      dados.log || {},
+      dados.med || {},
+      dados.notas || {}
+    );
+    await atualizarAposImportacao();
+    return `Importado: ${series} séries e ${medidas} medidas`;
+  }
+
+  throw new Error('Este arquivo não é dos dados do exemplo (esperado .json/.html com log/med).');
+}
+
+/**
+ * Reload everything the screens read after data has changed.
  * @returns {Promise<void>}
  */
-async function importarDadosDeReferencia() {
-  try {
-    const alreadyImported = await getSetting(DADOS_FLAG);
-    if (alreadyImported) return;
-
-    const log = (DADOS && DADOS.log) || {};
-    const med = (DADOS && DADOS.med) || {};
-    const notasRef = (DADOS && DADOS.notas) || {};
-
-    if (Object.keys(log).length === 0 && Object.keys(med).length === 0 && Object.keys(notasRef).length === 0) {
-      await saveSetting(DADOS_FLAG, true);
-      return;
-    }
-
-    const { series, medidas } = await importarDadosAntigos(log, med, notasRef);
-    await saveSetting(DADOS_FLAG, true);
-
-    if (series > 0 || medidas > 0) {
-      showToast(`Dados importados: ${series} séries e ${medidas} medidas`);
-    }
-  } catch (err) {
-    console.error('Erro ao importar dados do exemplo:', err);
-    // Import is best-effort - never block startup
-  }
+async function atualizarAposImportacao() {
+  notas = (await getSetting('notas')) || notas;
+  await loadCatalogo();
+  await carregarLogDoDia();
+  await render();
 }
+
+document.addEventListener('change', async ev => {
+  const el = ev.target;
+  const tipo = el && el.id === 'arquivoBackup' ? 'backup'
+    : el && el.id === 'arquivoExemplo' ? 'exemplo'
+      : null;
+  if (!tipo) return;
+
+  const file = el.files && el.files[0];
+  el.value = '';
+  if (!file) return;
+
+  try {
+    aviso(await importarArquivo(file, tipo));
+  } catch (err) {
+    console.error('Erro ao importar arquivo:', err);
+    aviso('Erro ao importar: ' + err.message);
+  }
+});
 
 /* --- Position: current week and day of the program --- */
 
@@ -765,7 +809,13 @@ async function telaRel() {
   <div class="card sec"><h2>Evolução das medidas</h2><select class="sel" data-k="metrica" style="margin:8px 0 12px">${opts}</select>${linha(serieMed(state.m).map(x => [brd(x[0]), x[1]]))}
   ${linhas ? `<table class="tb" style="margin-top:12px"><tr><th>Medida</th><th>Início</th><th>Atual</th><th>Variação</th></tr>${linhas}</table>` : ''}</div>
   <div class="card sec"><h2>Progressão por exercício</h2><div class="sub">Maior carga de cada semana, somando os dias em que o exercício aparece. A linha mostra a tendência.</div>${lista || VZ}</div>
-  <div class="card sec"><h2>Séries por grupo muscular</h2><div class="sub">Quantas séries você já fez em cada grupo.</div>${grupos || VZ}</div>`;
+  <div class="card sec"><h2>Séries por grupo muscular</h2><div class="sub">Quantas séries você já fez em cada grupo.</div>${grupos || VZ}</div>
+  <div class="card sec"><h2>Backup e importação</h2><div class="sub">Baixe um backup do que está neste aparelho, importe um backup .json gerado por este app ou importe os dados preenchidos no exemplo (.json/.html).</div>
+    <div class="acoes"><button class="btn" data-a="backup">Baixar backup</button><button class="btn p" data-a="importar-backup">Importar backup</button></div>
+    <div class="acoes"><button class="btn" data-a="importar-exemplo">Importar dados do exemplo</button></div>
+    <input type="file" id="arquivoBackup" accept=".json,application/json" style="display:none">
+    <input type="file" id="arquivoExemplo" accept=".json,.html,.htm,application/json,text/html" style="display:none">
+  </div>`;
 }
 
 /* --- Backup download (replaces "gravar no arquivo" from the reference app) --- */
@@ -849,6 +899,18 @@ document.addEventListener('click', async ev => {
   }
 
   await aguardarGravacoes();
+
+  if (a === 'importar-backup') {
+    const input = document.getElementById('arquivoBackup');
+    if (input) input.click();
+    return;
+  }
+
+  if (a === 'importar-exemplo') {
+    const input = document.getElementById('arquivoExemplo');
+    if (input) input.click();
+    return;
+  }
 
   if (a === 'dia') {
     state.d = v;

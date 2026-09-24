@@ -8,7 +8,7 @@
  */
 
 // Bump the version whenever cached assets change so clients drop stale copies.
-const CACHE_VERSION = 'treino-cache-v4';
+const CACHE_VERSION = 'treino-cache-v5';
 let cacheName = `treino-${CACHE_VERSION}`;
 
 // We'll determine the base path dynamically during install
@@ -45,7 +45,6 @@ self.addEventListener('install', (event) => {
         'js/app.js',
         'js/db.js',
         'js/plano.js',
-        'js/dados.js',
         'js/workout-service.js',
         'js/measurement-service.js',
         'js/report-service.js',
