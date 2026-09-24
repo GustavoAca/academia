@@ -96,12 +96,27 @@ jobs:
       # 5. Publicar no GitHub Pages
       - name: Configurar Pages
         uses: actions/configure-pages@v5
+        with:
+          # Habilitar o GitHub Pages para este repositório
+          enablement: enable
+
+      # 6. Se o passo anterior falhar, descomente abaixo para habilitar manualmente:
+      # - name: Habilitar GitHub Pages manualmente
+      #   run: |
+      #     gh api repos/:owner/:repo/pages -X PUT \
+      #       -f "base_branch=main" \
+      #       -f "cname=" \
+      #       -f "grant_access_to_organization=true" \
+      #       -f "source.branch=main" \
+      #       -f "source.repository= :repo" \
+      #       -f "template_directory=/" \
+      #       -f "visibility=public"
 
       - name: Upload artifact for GitHub Pages
         uses: actions/upload-pages-artifact@v3
         with:
-          # Upload the entire dist directory
-          path: '/'
+          # Raiz do repositório (arquivos do site)
+          path: '.'
 
       - name: Deploy para GitHub Pages
         id: deploy

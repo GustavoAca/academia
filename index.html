@@ -14,9 +14,9 @@
   <div id="app"></div>
   <div id="toast" class=""></div>
   
-  <!-- Define showToast globally BEFORE SW registration -->
   <script>
-    window.showToast = function(message) {
+    // Função toast deve estar disponível globalmente
+    window.showToast = function message(message) {
       const toast = document.getElementById('toast');
       if (toast) {
         toast.textContent = message;
@@ -52,7 +52,6 @@
 
   <script>
     // Register Service Worker for PWA offline functionality
-    // NOTE: Service Workers only work over HTTP/HTTPS, NOT file:// protocol
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('service-worker.js')
@@ -80,8 +79,6 @@
             showToast('Falha ao registrar Service Worker');
           });
       });
-    } else {
-      showToast('Service Workers não suportados neste navegador');
     }
     
     // Handle app visibility change

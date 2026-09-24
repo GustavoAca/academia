@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="pt-BR"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Treino Set–Dez 2026</title>
+<style>
+:root{--bg:#eceeea;--card:#fff;--ink:#17211d;--mut:#6a7570;--line:#d5d9d3;--ac:#2447d6;--acs:#dfe5fb;--ok:#1e8a55;--oks:#dcf1e5;--warn:#c0641a;color-scheme:light dark}
+@media(prefers-color-scheme:dark){:root{--bg:#12161a;--card:#1b2127;--ink:#eef1ee;--mut:#8f9a95;--line:#2d353c;--ac:#7f9bff;--acs:#243056;--ok:#5fd394;--oks:#17352a;--warn:#f0a35e}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.35 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+#app{max-width:560px;margin:0 auto;padding:0 0 calc(84px + env(safe-area-inset-bottom,0px))}
+header{position:sticky;top:0;z-index:5;background:var(--bg);padding:calc(10px + env(safe-area-inset-top,0px)) 14px 10px;border-bottom:1px solid var(--line)}
+.dias{display:flex;gap:6px}
+.dias button{flex:1;padding:7px 0;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);font:inherit;font-size:13px;line-height:1.2}
+.dias button b{display:block;font-size:14px}.dias button small{color:var(--mut);font-size:11px}
+.dias button.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}.dias button.on small{color:inherit;opacity:.7}
+.sem{display:flex;align-items:center;justify-content:space-between;margin:10px 0 6px}
+.sem .t{font-weight:700;font-size:18px}.sem .t small{display:block;font-weight:400;font-size:13px;color:var(--mut)}
+.step{display:flex;align-items:center;gap:4px}
+.step button,.ico{width:38px;height:38px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);font-size:18px}
+.step span{min-width:64px;text-align:center;font-size:13px;color:var(--mut)}
+.bar{height:6px;background:var(--line);border-radius:9px;overflow:hidden}.bar i{display:block;height:100%;width:0;background:var(--ok);transition:width .25s}
+.res{display:flex;justify-content:space-between;font-size:12px;color:var(--mut);margin-top:5px}
+.dot{display:inline-block;width:8px;height:8px;border-radius:9px;background:var(--ok);margin-right:5px}.dot.sujo{background:var(--warn)}
+main{padding:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px}
+.grp{display:inline-block;font-size:12px;color:var(--ac);background:var(--acs);padding:2px 9px;border-radius:9px}
+h1{font-size:26px;line-height:1.15;margin:8px 0 4px}
+.meta{color:var(--mut);font-size:14px}
+.ant{margin:12px 0;padding:9px 11px;border-radius:10px;background:var(--bg);font-size:13px}
+.ant b{color:var(--ink)}
+.hd,.set{display:grid;grid-template-columns:34px 1fr 1fr 62px 48px;gap:8px;align-items:center}
+.hd{font-size:12px;color:var(--mut);margin:14px 0 4px;text-align:center}
+.set{margin-bottom:8px}
+.set .n{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-weight:700;background:var(--bg);font-size:14px}
+.set.ok .n{background:var(--ok);color:#fff}
+.set input{width:100%;height:52px;border:1.5px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);text-align:center;font:700 22px system-ui,sans-serif;font-variant-numeric:tabular-nums;padding:0}
+.set input::placeholder{color:var(--mut);opacity:.45;font-weight:400}
+.set input:focus{outline:none;border-color:var(--ac);box-shadow:0 0 0 3px var(--acs)}
+.set input.q{font-size:17px}
+.set.ok input{border-color:var(--ok)}
+.fal{height:52px;border:1.5px solid var(--line);border-radius:12px;background:var(--card);color:var(--mut);font-size:12px;line-height:1.1}
+.fal.on{background:var(--warn);border-color:var(--warn);color:#fff;font-weight:700}
+textarea{width:100%;margin-top:6px;border:1.5px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);font:inherit;font-size:15px;padding:10px;resize:none}
+.acoes{display:flex;gap:8px;margin-top:12px}
+.btn{flex:1;height:44px;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);font:inherit;font-size:14px}
+.btn.p{background:var(--ac);border-color:var(--ac);color:var(--card);font-weight:700}
+nav{position:fixed;left:0;right:0;bottom:0;z-index:6;background:var(--bg);border-top:1px solid var(--line);padding:10px 14px calc(10px + env(safe-area-inset-bottom,0px))}
+nav div{max-width:560px;margin:0 auto;display:grid;grid-template-columns:1fr auto 1fr;gap:10px}
+nav button{height:52px;border-radius:14px;border:1px solid var(--line);background:var(--card);color:var(--ink);font:inherit;font-weight:700;font-size:16px}
+nav button.p{background:var(--ac);color:var(--card);border-color:var(--ac)}nav button:disabled{opacity:.35}
+nav .c{padding:0 16px;font-size:15px}
+.li{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:13px 14px;margin-bottom:8px;border:1px solid var(--line);border-radius:14px;background:var(--card);color:var(--ink);font:inherit}
+.li .n{flex:1}.li b{display:block}.li small{color:var(--mut)}
+.li .st{font-size:13px;color:var(--mut)}.li.ok .st{color:var(--ok);font-weight:700}
+.li.at{border-color:var(--ac);box-shadow:0 0 0 2px var(--acs)}
+#toast{position:fixed;left:50%;bottom:calc(92px + env(safe-area-inset-bottom,0px));transform:translate(-50%,20px);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;font-size:14px;opacity:0;pointer-events:none;transition:.2s;z-index:9;max-width:90%;text-align:center}
+#toast.show{opacity:1;transform:translate(-50%,0)}
+.vazio{text-align:center;color:var(--mut);padding:40px 10px}
+.tabs{display:flex;gap:4px;background:var(--line);padding:3px;border-radius:12px;margin-bottom:10px}
+.tabs button{flex:1;height:34px;border:0;border-radius:9px;background:none;color:var(--mut);font:inherit;font-size:14px;font-weight:600}
+.tabs button.on{background:var(--card);color:var(--ink)}
+.sec{margin-bottom:14px}.sec h2{font-size:17px;margin:0 0 2px}.sub{font-size:13px;color:var(--mut);margin-bottom:10px}
+.kpis{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px}.kpi b{display:block;font-size:22px;font-variant-numeric:tabular-nums}.kpi small{color:var(--mut);font-size:12px}
+svg.gr{width:100%;height:auto;display:block}
+.gr text{fill:var(--mut);font-size:9px;font-family:inherit}
+.gr .b{fill:var(--acs)}.gr .b.at{fill:var(--ac)}.gr .ln{fill:none;stroke:var(--ac);stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round}.gr .pt{fill:var(--ac)}.gr .gl{stroke:var(--line);stroke-width:1}
+.tb{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}.tb td,.tb th{padding:8px 4px;border-bottom:1px solid var(--line);text-align:right}.tb th{color:var(--mut);font-weight:400;font-size:12px}.tb td:first-child,.tb th:first-child{text-align:left}
+.pr{font-size:11px;background:var(--oks);color:var(--ok);padding:1px 7px;border-radius:9px;margin-left:6px;font-weight:700}
+.ex{display:grid;grid-template-columns:1fr 84px;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+.ex b{display:block}.ex small{color:var(--mut)}
+.frm{display:grid;grid-template-columns:1fr 1fr;gap:10px}.frm label{font-size:12px;color:var(--mut)}
+.frm input,.sel{width:100%;height:46px;border:1.5px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);font:600 18px system-ui;padding:0 10px;text-align:center}
+.frm input::placeholder{color:var(--mut);opacity:.45;font-weight:400}
+.frm input:focus,.sel:focus{outline:none;border-color:var(--ac);box-shadow:0 0 0 3px var(--acs)}
+.hbar{display:grid;grid-template-columns:96px 1fr 40px;gap:8px;align-items:center;font-size:13px;margin:6px 0}
+.hbar i{display:block;height:10px;border-radius:6px;background:var(--ac)}.hbar span:last-child{text-align:right;color:var(--mut)}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast" class=""></div>
+<script id="dados" type="application/json">{"t":1790255864899,"log":{"qua|2|0|0":{"c":"10","r":"12"},"qua|2|0|1":{"c":"10","r":"12"},"qua|2|0|2":{"c":"10","r":"10"},"qua|2|0|3":{"c":"10","r":"12"},"qua|2|1|0":{"c":"20","r":"10"},"qua|2|1|1":{"c":"20","r":"12"},"qua|2|1|2":{"c":"20","r":"6"},"qua|2|2|0":{"c":"40","r":"8"},"qua|2|2|1":{"c":"40","r":"6"},"qua|2|2|2":{"c":"40","r":"6"},"qua|2|3|0":{"c":"15","r":"10"},"qua|2|3|1":{"c":"15","r":"8"},"qua|2|3|2":{"c":"15","r":"10"},"qua|2|3|3":{"c":"15","r":"2"},"qua|2|4|0":{"c":"0","r":"10"},"qua|2|4|1":{"c":"10","r":"10"},"qua|2|4|2":{"c":"10","r":"10"},"sex|1|0|0":{"c":"0","r":"6"},"sex|1|0|1":{"c":"10","r":"4"},"sex|1|0|2":{"c":"10","r":"6","f":true},"sex|1|1|0":{"c":"35","r":"6"},"sex|1|1|1":{"c":"35","r":"6"},"sex|1|1|2":{"c":"35","r":"6","f":true},"sex|1|2|0":{"c":"15","r":"10"},"sex|1|2|1":{"c":"15","r":"10"},"sex|1|2|2":{"c":"15","r":"12"},"sex|1|2|3":{"c":"15","r":"8","f":true},"sex|1|3|0":{"c":"0","r":"10"},"sex|1|3|1":{"c":"15","r":"10"},"sex|1|3|2":{"c":"15","r":"12","f":true},"sex|1|5|0":{"c":"10","r":"12"},"sex|1|5|1":{"c":"10","r":"14"},"sex|1|5|2":{"c":"10","r":"12"},"sex|1|6|0":{"c":"5","r":"10"},"sex|1|6|1":{"c":"5","r":"14"},"sex|1|6|2":{"c":"10","r":"6"},"seg|1|0|0":{"c":"10","r":"10"},"seg|1|0|1":{"c":"10","r":"10"},"seg|1|0|2":{"c":"10","r":"10","f":true},"seg|1|1|0":{"c":"20","r":"10"},"seg|1|1|1":{"c":"25","r":"6"},"seg|1|1|2":{"c":"25","r":"6","f":true},"seg|1|2|0":{"c":"10","r":"8"},"seg|1|2|1":{"c":"10","r":"8"},"seg|1|2|2":{"c":"11","r":"6","f":true},"seg|1|3|0":{"c":"7","r":"8"},"seg|1|3|1":{"c":"8","r":"6"},"seg|1|3|2":{"c":"8","r":"6"},"seg|1|3|3":{"c":"8","r":"6"},"seg|1|4|0":{"c":"10","r":"6"},"seg|1|4|1":{"c":"10","r":"6","f":true},"seg|1|5|0":{"c":"15","r":"8"},"seg|1|5|1":{"c":"15","r":"9"},"seg|1|5|2":{"c":"15","r":"6","f":true},"ter|1|0|0":{"c":"10","r":"6"},"ter|1|0|1":{"c":"10","r":"8"},"ter|1|0|2":{"c":"10","r":"8"},"ter|1|0|3":{"c":"10","r":"6","f":true},"ter|1|1|0":{"c":"10","r":"8"},"ter|1|1|1":{"c":"10","r":"8"},"ter|1|1|2":{"c":"10","r":"10"},"ter|1|2|0":{"c":"10","r":"6"},"ter|1|2|1":{"c":"10","r":"8"},"ter|1|2|2":{"c":"10","r":"10"},"ter|1|3|0":{"c":"7","r":"6"},"ter|1|3|1":{"c":"7","r":"6"},"ter|1|3|2":{"c":"7","r":"6"},"ter|1|3|3":{"c":"7","r":"6","f":true},"ter|1|4|0":{"c":"10","r":"6"},"ter|1|4|1":{"c":"10","r":"6"},"ter|1|4|2":{"c":"10","r":"6"},"ter|1|5|0":{"c":"10","r":"6"},"ter|1|5|1":{"c":"10","r":"6"},"ter|1|5|2":{"c":"10","r":"6"},"qua|1|0|0":{"c":"10","r":"10"},"qua|1|0|1":{"c":"0","r":"8"},"qua|1|0|2":{"c":"0","r":"10"},"qua|1|0|3":{"c":"0","r":"12","f":true},"qua|1|1|0":{"c":"10","r":"6"},"qua|1|1|1":{"c":"10","r":"6"},"qua|1|1|2":{"c":"10","r":"6","f":true,"q":""},"qua|1|2|0":{"c":"30","r":"7"},"qua|1|2|1":{"c":"30","r":"7"},"qua|1|2|2":{"c":"30","r":"6","f":true},"qua|1|3|0":{"c":"15","r":"6"},"qua|1|3|1":{"r":"8","c":"15"},"qua|1|3|2":{"r":"2","c":"15","f":true},"qua|1|4|0":{"c":"0","r":"10"},"qua|1|4|1":{"c":"15","r":"10"},"qua|1|4|2":{"c":"15","r":"10"},"qua|1|5|0":{"c":"20","r":"12"},"qua|1|5|1":{"r":"12","c":"20"},"qua|1|5|2":{"c":"20","r":"12","f":true},"qua|1|2|3":{"c":"","r":""},"qui|1|0|0":{"c":"10","r":"8"},"qui|1|0|1":{"c":"10","r":"10"},"qui|1|0|2":{"c":"10","r":"10"},"qui|1|1|0":{"c":"24","r":"8"},"qui|1|1|1":{"c":"31","r":"6"},"qui|1|1|2":{"c":"31","r":"6"},"qui|1|2|0":{"c":"10","r":"8"},"qui|1|2|1":{"c":"10","r":"10"},"qui|1|2|2":{"c":"10","r":"10"},"qui|1|3|0":{"c":"10","r":"8"},"qui|1|3|1":{"c":"10","r":"10"},"qui|1|3|2":{"c":"10","r":"10"},"qui|1|4|0":{"c":"7","r":"8"},"qui|1|4|1":{"c":"8","r":"7"},"qui|1|4|2":{"c":"8","r":"6"},"qui|1|4|3":{"c":"8","r":"6","f":true},"qui|1|6|0":{"c":"10","r":"10"},"qui|1|6|1":{"c":"10","r":"10"},"qui|1|6|2":{"c":"10","r":"10"},"qui|1|7|0":{"c":"17","r":"8"},"qui|1|7|1":{"c":"17","r":"10"},"qui|1|7|2":{"c":"17","r":"7","f":true}},"notas":{},"med":{"2026-09-14":{"peso":"90"},"2026-09-15":{"peso":"90"},"2026-09-16":{"peso":"90"},"2026-09-17":{"peso":"90"},"2026-09-18":{"peso":"90"},"2026-09-19":{"peso":"90.8","cint":"94","quad":"112","bd":"43","be":"42","pesc":"43","pd":"38","pe":"39","cd":"68","ce":"71","busto":"104"}}}</script>
+<script>
+const PLANO={"seg": {"t": "Push A", "ex": [["Supino com Halteres", "Peito", 4, 6, 12], ["Supino Inclinado / Variação", "Peito", 3, 8, 15], ["Desenvolvimento com Halteres", "Ombros", 3, 8, 12], ["Elevação Lateral", "Ombros", 4, 12, 20], ["Tríceps Francês", "Tríceps", 3, 10, 15], ["Tríceps Testa", "Tríceps", 3, 10, 15], ["Abdominal", "Abdômen", 3, 12, 20]]}, "ter": {"t": "Pull A", "ex": [["Remada Curvada com Halteres", "Costas", 4, 8, 12], ["Remada Unilateral", "Costas", 3, 8, 15], ["Pullover com Halter", "Costas", 3, 10, 15], ["Crucifixo Inverso", "Ombro Posterior", 4, 12, 20], ["Rosca Alternada", "Bíceps", 3, 8, 12], ["Rosca Martelo", "Bíceps", 3, 10, 15]]}, "qua": {"t": "Legs A", "ex": [["Agachamento Goblet", "Quadríceps", 4, 10, 15], ["Afundo com Halteres", "Quadríceps", 3, 8, 12], ["Cadeira Extensora", "Quadríceps", 4, 10, 15], ["Terra Romeno com Halteres", "Posterior", 4, 8, 12], ["Elevação Pélvica", "Posterior", 3, 10, 15], ["Panturrilha", "Panturrilha", 4, 12, 20], ["Abdominal", "Abdômen", 3, 12, 20]]}, "qui": {"t": "Superior B", "ex": [["Supino com Halteres", "Peito", 3, 8, 12], ["Crucifixo com Halteres", "Peito", 3, 10, 15], ["Remada Unilateral", "Costas", 3, 10, 15], ["Remada Curvada", "Costas", 3, 8, 12], ["Elevação Lateral", "Ombros", 4, 12, 20], ["Crucifixo Inverso", "Ombro Posterior", 3, 12, 20], ["Rosca Martelo", "Bíceps", 3, 10, 15], ["Tríceps Francês", "Tríceps", 3, 10, 15]]}, "sex": {"t": "Legs B + Braços", "ex": [["Agachamento Búlgaro", "Quadríceps", 4, 8, 12], ["Cadeira Extensora", "Quadríceps", 4, 12, 20], ["Terra Romeno", "Posterior", 4, 8, 12], ["Elevação Pélvica", "Posterior", 3, 10, 15], ["Panturrilha", "Panturrilha", 4, 15, 25], ["Rosca Alternada", "Bíceps", 3, 10, 15], ["Tríceps Francês", "Tríceps", 3, 10, 15], ["Abdominal", "Abdômen", 3, 12, 20]]}};
+const DIAS=['seg','ter','qua','qui','sex'],CURTO=['Seg','Ter','Qua','Qui','Sex'],LONGO=['Segunda','Terça','Quarta','Quinta','Sexta'];
+const INI=new Date(2026,8,14),MAXS=d=>d===4?15:16;
+const dataDe=(s,d)=>{const x=new Date(INI);x.setDate(x.getDate()+(s-1)*7+d);return x};
+const fmt=x=>String(x.getDate()).padStart(2,'0')+'/'+String(x.getMonth()+1).padStart(2,'0');
+const esc=t=>String(t==null?'':t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const $=q=>document.querySelector(q);
+
+/* ---------- estado salvo (arquivo + localStorage; vale o mais recente) ---------- */
+const emb=JSON.parse($('#dados').textContent);
+let S=emb;
+try{const l=JSON.parse(localStorage.getItem('treino2026')||'null');if(l&&l.t>emb.t)S=l}catch(e){}
+S.log=S.log||{};S.notas=S.notas||{};S.med=S.med||{};
+let arqT=emb.t,handle=null;
+const K=(d,s,e,i)=>[DIAS[d],s,e,i].join('|');
+const G=(d,s,e,i)=>S.log[K(d,s,e,i)]||{};
+const ok=x=>x.c!==undefined&&x.c!==''&&x.r!==undefined&&x.r!==''; 
+function gravar(){
+  S.t=Date.now();
+  try{localStorage.setItem('treino2026',JSON.stringify({t:S.t,log:S.log,notas:S.notas,med:S.med}))}catch(e){}
+  status();
+}
+
+/* ---------- posição inicial: semana e dia de hoje ---------- */
+const V={s:1,d:0,e:0,lista:false,tela:'treino',md:hojeISO(),m:'peso'};
+(function(){
+  const h=new Date(),diff=Math.floor((new Date(h.getFullYear(),h.getMonth(),h.getDate())-INI)/864e5);
+  let s=Math.floor(diff/7)+1,dw=h.getDay();
+  if(diff<0){s=1;V.d=0}else if(dw===0||dw===6){s+=1;V.d=0}else V.d=dw-1;
+  V.s=Math.min(16,Math.max(1,s));
+  V.e=primeiroAberto();
+})();
+function feitas(d,s,e){const n=PLANO[DIAS[d]].ex[e][2];let c=0;for(let i=0;i<n;i++)if(ok(G(d,s,e,i)))c++;return c}
+function primeiroAberto(){const ex=PLANO[DIAS[V.d]].ex;for(let e=0;e<ex.length;e++)if(feitas(V.d,V.s,e)<ex[e][2])return e;return 0}
+
+/* ---------- referência da última vez ---------- */
+function ultimo(d,s,e){
+  for(let w=s-1;w>=1;w--){const n=PLANO[DIAS[d]].ex[e][2],r=[];
+    for(let i=0;i<n;i++)r.push(G(d,w,e,i));
+    if(r.some(ok))return{w,r}}
+  return null;
+}
+
+/* ---------- render ---------- */
+function totais(){
+  const ex=PLANO[DIAS[V.d]].ex;let t=0,f=0,vol=0;
+  ex.forEach((x,e)=>{t+=x[2];for(let i=0;i<x[2];i++){const g=G(V.d,V.s,e,i);if(ok(g)){f++;vol+=(parseFloat(String(g.c).replace(',','.'))||0)*(parseFloat(g.r)||0)}}});
+  return{t,f,vol};
+}
+function render(){
+  if(V.tela!=='treino')return renderOutra();
+  const p=PLANO[DIAS[V.d]],n=p.ex.length,mx=MAXS(V.d);
+  if(V.s>mx)V.s=mx;
+  const dias=CURTO.map((c,i)=>`<button data-a="dia" data-v="${i}" class="${i===V.d?'on':''}"><b>${c}</b><small>${fmt(dataDe(V.s,i))}</small></button>`).join('');
+  let corpo='';
+  if(V.lista){
+    corpo=p.ex.map((x,e)=>{const f=feitas(V.d,V.s,e),c=f>=x[2];
+      return `<button class="li ${c?'ok':''} ${e===V.e?'at':''}" data-a="ir" data-v="${e}"><span class="n"><b>${esc(x[0])}</b><small>${esc(x[1])} · meta ${x[3]}–${x[4]}</small></span><span class="st">${c?'✓ ':''}${f}/${x[2]}</span></button>`}).join('');
+  }else corpo=cardEx();
+  $('#app').innerHTML=`<header>${tabs()}
+    <div class="dias">${dias}</div>
+    <div class="sem"><div class="t">${LONGO[V.d]} · ${esc(p.t)}<small>${fmt(dataDe(V.s,V.d))}</small></div>
+      <div class="step"><button data-a="sem" data-v="-1" ${V.s<=1?'disabled':''}>‹</button><span>Semana ${V.s}/${mx}</span><button data-a="sem" data-v="1" ${V.s>=mx?'disabled':''}>›</button></div></div>
+    <div class="bar"><i id="pb"></i></div>
+    <div class="res"><span id="rt"></span><span><button data-a="salvar" style="all:unset;cursor:pointer"><i class="dot" id="dt"></i><u id="st"></u></button></span></div>
+  </header><main>${corpo}</main>
+  <nav><div><button data-a="ant" ${V.lista||V.e===0?'disabled':''}>‹ Anterior</button>
+  <button class="c" data-a="lista">${V.lista?'Voltar':'☰ '+(V.e+1)+'/'+n}</button>
+  <button class="p" data-a="prox" ${V.lista||V.e===n-1?'disabled':''}>Próximo ›</button></div></nav>`;
+  resumo();status();
+}
+function cardEx(){
+  const p=PLANO[DIAS[V.d]],x=p.ex[V.e],[nome,grp,ns,mn,mxr]=x,u=ultimo(V.d,V.s,V.e);
+  let ant='<div class="ant">Sem registro anterior deste exercício.</div>';
+  if(u)ant=`<div class="ant">Semana ${u.w}: <b>${u.r.map(g=>ok(g)?`${esc(g.c)}kg × ${esc(g.r)}`:'—').join(' · ')}</b></div>`;
+  let sets='';
+  for(let i=0;i<ns;i++){
+    const g=G(V.d,V.s,V.e,i),a=u?u.r[i]||{}:{};
+    sets+=`<div class="set ${ok(g)?'ok':''}" data-i="${i}"><div class="n">${i+1}</div>
+    <input data-k="c" inputmode="decimal" value="${esc(g.c)}" placeholder="${esc(a.c)}" aria-label="Carga série ${i+1}">
+    <input data-k="r" inputmode="numeric" value="${esc(g.r)}" placeholder="${esc(a.r)}" aria-label="Repetições série ${i+1}">
+    <input class="q" data-k="q" inputmode="numeric" value="${esc(g.q)}" placeholder="RIR" aria-label="RIR série ${i+1}">
+    <button class="fal ${g.f?'on':''}" data-a="falha">Falha</button></div>`;
+  }
+  return `<div class="card"><span class="grp">${esc(grp)}</span><h1>${esc(nome)}</h1>
+  <div class="meta">${ns} séries · meta ${mn}–${mxr} repetições</div>${ant}
+  <div class="hd" style="display:grid;grid-template-columns:34px 1fr 1fr 62px 48px;gap:8px"><span></span><span>Carga (kg)</span><span>Reps</span><span>RIR</span><span></span></div>
+  ${sets}
+  <textarea rows="2" data-k="nota" placeholder="Observações">${esc(S.notas[K(V.d,V.s,V.e,'n')])}</textarea>
+  <div class="acoes">${u?'<button class="btn" data-a="repetir">Preencher com a semana anterior</button>':''}</div></div>`;
+}
+function resumo(){
+  const t=totais();
+  $('#pb').style.width=(t.f/t.t*100)+'%';
+  $('#rt').textContent=`${t.f}/${t.t} séries · ${Math.round(t.vol).toLocaleString('pt-BR')} kg de volume`;
+}
+function status(){
+  const d=S.t>arqT;
+  if(!$('#dt'))return;
+  $('#dt').className='dot'+(d?' sujo':'');
+  $('#st').textContent=d?'salvo no aparelho · gravar no arquivo':'arquivo atualizado';
+}
+function aviso(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(aviso.h);aviso.h=setTimeout(()=>t.classList.remove('show'),2600)}
+
+/* ---------- interações ---------- */
+document.addEventListener('input',ev=>{
+  const el=ev.target,k=el.dataset.k;if(!k)return;
+  if(k==='metrica'){V.m=el.value;render();return}
+  if(k==='mdata'){if(el.value){V.md=el.value;render()}return}
+  if(k.slice(0,2)==='m:'){const f=k.slice(2),m=S.med[V.md]=S.med[V.md]||{};m[f]=el.value.trim();if(!MED.some(x=>m[x[0]]))delete S.med[V.md];gravar();return}
+  if(k==='nota'){S.notas[K(V.d,V.s,V.e,'n')]=el.value;gravar();return}
+  const i=+el.closest('.set').dataset.i,key=K(V.d,V.s,V.e,i),g=S.log[key]=S.log[key]||{};
+  g[k]=el.value.trim();
+  el.closest('.set').classList.toggle('ok',ok(g));
+  gravar();resumo();
+});
+document.addEventListener('click',ev=>{
+  const b=ev.target.closest('[data-a]');if(!b)return;
+  const a=b.dataset.a,v=+b.dataset.v;
+  if(a==='dia'){V.d=v;V.s=Math.min(V.s,MAXS(v));V.e=primeiroAberto();V.lista=false;render()}
+  else if(a==='sem'){V.s+=v;V.e=primeiroAberto();render()}
+  else if(a==='ant'){V.e--;render();scrollTo(0,0)}
+  else if(a==='prox'){V.e++;render();scrollTo(0,0)}
+  else if(a==='lista'){V.lista=!V.lista;render();scrollTo(0,0)}
+  else if(a==='ir'){V.e=v;V.lista=false;render();scrollTo(0,0)}
+  else if(a==='falha'){const s=b.closest('.set'),i=+s.dataset.i,key=K(V.d,V.s,V.e,i),g=S.log[key]=S.log[key]||{};g.f=!g.f;b.classList.toggle('on',g.f);gravar()}
+  else if(a==='repetir'){
+    const u=ultimo(V.d,V.s,V.e);if(!u)return;
+    u.r.forEach((x,i)=>{const key=K(V.d,V.s,V.e,i),g=S.log[key]=S.log[key]||{};if(!ok(g)&&ok(x)){g.c=x.c;g.r=x.r}});
+    gravar();render();aviso('Preenchido com a semana '+u.w)}
+  else if(a==='tela'){V.tela=b.dataset.t;render();scrollTo(0,0)}
+  else if(a==='mdia'){V.md=b.dataset.d;render();scrollTo(0,0)}
+  else if(a==='salvar')salvarArquivo();
+});
+
+/* ---------- medidas e relatório ---------- */
+const MED=[['peso','Peso','kg'],['gord','% Gordura','%'],['cint','Cintura','cm'],['busto','Busto','cm'],['abd','Abdômen','cm'],['culote','Culote','cm'],['quad','Quadril','cm'],['peit','Peito','cm'],['bd','Braço D','cm'],['be','Braço E','cm'],['cd','Coxa D','cm'],['ce','Coxa E','cm'],['pd','Panturrilha D','cm'],['pe','Panturrilha E','cm'],['pesc','Pescoço','cm']];
+function hojeISO(){const h=new Date();return h.getFullYear()+'-'+String(h.getMonth()+1).padStart(2,'0')+'-'+String(h.getDate()).padStart(2,'0')}
+const num=v=>{const n=parseFloat(String(v).replace(',','.'));return isNaN(n)?null:n};
+const brd=i=>i.slice(8)+'/'+i.slice(5,7);
+const f1=n=>(Math.round(n*10)/10).toLocaleString('pt-BR');
+const sg=n=>(n>0?'+':n<0?'−':'')+f1(Math.abs(n));
+const VZ='<div class="meta">Sem séries registradas ainda.</div>';
+const serieMed=k=>Object.keys(S.med).sort().map(d=>[d,num(S.med[d][k])]).filter(x=>x[1]!==null);
+function tabs(){return `<div class="tabs">${[['treino','Treino'],['med','Medidas'],['rel','Relatório']].map(t=>`<button data-a="tela" data-t="${t[0]}" class="${V.tela===t[0]?'on':''}">${t[1]}</button>`).join('')}</div>`}
+function renderOutra(){
+  $('#app').innerHTML=`<header>${tabs()}<div class="res"><span>${V.tela==='med'?'Medidas corporais':'Relatório de progresso'}</span><span><button data-a="salvar" style="all:unset;cursor:pointer"><i class="dot" id="dt"></i><u id="st"></u></button></span></div></header><main>${V.tela==='med'?telaMed():telaRel()}</main>`;
+  status();
+}
+function telaMed(){
+  const e=S.med[V.md]||{},datas=Object.keys(S.med).sort().reverse();
+  const campos=MED.map(([k,n,u])=>{const ult=serieMed(k).filter(x=>x[0]<V.md).pop();
+    return `<div><label>${n} (${u})</label><input data-k="m:${k}" inputmode="decimal" value="${esc(e[k])}" placeholder="${ult?f1(ult[1]):''}"></div>`}).join('');
+  const hist=datas.slice(0,12).map(d=>`<tr data-a="mdia" data-d="${d}" style="cursor:pointer"><td>${brd(d)}${d===V.md?' ●':''}</td><td>${S.med[d].peso?esc(S.med[d].peso)+' kg':'—'}</td><td>${MED.filter(x=>S.med[d][x[0]]).length} campos</td></tr>`).join('');
+  return `<div class="card sec"><h2>Registrar medidas</h2><div class="sub">Peso quando quiser; as demais medidas, uma vez por semana. O número em cinza é o último valor registrado.</div>
+  <input type="date" class="sel" data-k="mdata" value="${V.md}" style="margin-bottom:12px"><div class="frm">${campos}</div></div>
+  <div class="card sec"><h2>Histórico</h2>${hist?`<table class="tb"><tr><th>Data</th><th>Peso</th><th>Preenchido</th></tr>${hist}</table>`:'<div class="meta">Nada registrado ainda.</div>'}</div>`;
+}
+function registros(){
+  const r=[];
+  for(const k in S.log){const g=S.log[k];if(!ok(g))continue;
+    const [dia,s,e]=k.split('|'),x=PLANO[dia]&&PLANO[dia].ex[+e];if(!x)continue;
+    const c=num(g.c)||0,rp=num(g.r)||0;r.push({d:DIAS.indexOf(dia),s:+s,nome:x[0],grp:x[1],c,r:rp,v:c*rp})}
+  return r;
+}
+function barras(v,at){
+  const W=320,H=110,m=Math.max(...v,1),bw=W/v.length;
+  return `<svg class="gr" viewBox="0 0 ${W} ${H+16}"><text x="0" y="8">${Math.round(m).toLocaleString('pt-BR')} kg</text>`+v.map((y,i)=>{const h=y/m*(H-16);
+    return `<rect class="b${i+1===at?' at':''}" x="${i*bw+2}" y="${H-h}" width="${bw-4}" height="${Math.max(h,2)}" rx="3"/><text x="${i*bw+bw/2}" y="${H+12}" text-anchor="middle">${i+1}</text>`}).join('')+'</svg>';
+}
+function linha(p){
+  if(p.length<2)return '<div class="meta">Registre ao menos 2 valores desta medida para ver a evolução.</div>';
+  const W=320,H=110,pad=28,ys=p.map(x=>x[1]),lo=Math.min(...ys),hi=Math.max(...ys),sp=(hi-lo)||1;
+  const X=i=>pad+i*(W-pad-8)/(p.length-1),Y=y=>10+(1-(y-lo)/sp)*(H-26);
+  return `<svg class="gr" viewBox="0 0 ${W} ${H+8}"><line class="gl" x1="${pad}" x2="${W-8}" y1="${Y(lo)}" y2="${Y(lo)}"/><line class="gl" x1="${pad}" x2="${W-8}" y1="${Y(hi)}" y2="${Y(hi)}"/><text x="0" y="${Y(hi)+3}">${f1(hi)}</text><text x="0" y="${Y(lo)+3}">${f1(lo)}</text><polyline class="ln" points="${p.map((x,i)=>X(i)+','+Y(x[1])).join(' ')}"/>`+p.map((x,i)=>`<circle class="pt" cx="${X(i)}" cy="${Y(x[1])}" r="3"/>`).join('')+`<text x="${pad}" y="${H+6}">${p[0][0]}</text><text x="${W-8}" y="${H+6}" text-anchor="end">${p[p.length-1][0]}</text></svg>`;
+}
+function spark(v){
+  if(v.length<2)return '';
+  const lo=Math.min(...v),hi=Math.max(...v),sp=(hi-lo)||1;
+  return `<svg class="gr" viewBox="0 0 80 24"><polyline class="ln" style="stroke-width:2" points="${v.map((y,i)=>(i*76/(v.length-1)+2)+','+(22-(y-lo)/sp*20)).join(' ')}"/></svg>`;
+}
+function telaRel(){
+  const R=registros(),vol=R.reduce((a,x)=>a+x.v,0),dias=new Set(R.map(x=>x.d+'|'+x.s)).size;
+  let plan=0;DIAS.forEach((k,d)=>plan+=PLANO[k].ex.reduce((a,x)=>a+x[2],0)*MAXS(d));
+  const pS=serieMed('peso'),pAt=pS.length?pS[pS.length-1][1]:null,dP=pS.length>1?pAt-pS[0][1]:null;
+  const kp=(b,s)=>`<div class="kpi"><b>${b}</b><small>${s}</small></div>`;
+  const semVol=Array.from({length:16},(_,i)=>R.filter(x=>x.s===i+1).reduce((a,x)=>a+x.v,0)),at=Math.max(0,...R.map(x=>x.s));
+  const gr={};R.forEach(x=>{gr[x.grp]=(gr[x.grp]||0)+1});
+  const gl=Object.entries(gr).sort((a,b)=>b[1]-a[1]),gm=gl.length?gl[0][1]:1;
+  const grupos=gl.map(([n,c])=>`<div class="hbar"><span>${esc(n)}</span><span><i style="width:${c/gm*100}%"></i></span><span>${c}</span></div>`).join('');
+  const ex={};R.forEach(x=>{const o=ex[x.nome]=ex[x.nome]||{w:{},v:0,b:0,br:0};o.v+=x.v;o.w[x.s]=Math.max(o.w[x.s]||0,x.c);if(x.c>o.b||(x.c===o.b&&x.r>o.br)){o.b=x.c;o.br=x.r}});
+  const lista=Object.entries(ex).sort((a,b)=>b[1].v-a[1].v).map(([n,o])=>{
+    const ws=Object.keys(o.w).map(Number).sort((a,b)=>a-b),cs=ws.map(w=>o.w[w]),u=cs[cs.length-1];
+    const d=cs.length>1?u-cs[0]:null,pr=cs.length>1&&u>Math.max(...cs.slice(0,-1));
+    return `<div class="ex"><div><b>${esc(n)}${pr?'<span class="pr">recorde</span>':''}</b><small>melhor série: ${f1(o.b)} kg × ${o.br}${d!==null?` · ${sg(d)} kg desde a semana ${ws[0]}`:''}</small></div>${spark(cs)}</div>`}).join('');
+  const linhas=MED.map(([k,n,u])=>{const s=serieMed(k);if(!s.length)return '';const a=s[0][1],b=s[s.length-1][1];
+    return `<tr><td>${n}</td><td>${f1(a)}</td><td>${f1(b)}</td><td>${s.length>1?sg(b-a)+' '+u:'—'}</td></tr>`}).join('');
+  const opts=MED.map(x=>`<option value="${x[0]}" ${x[0]===V.m?'selected':''}>${x[1]}</option>`).join('');
+  return `<div class="kpis">${kp(dias,'treinos feitos')}${kp(R.length+'/'+plan,'séries feitas')}${kp(Math.round(vol).toLocaleString('pt-BR')+' kg','volume total')}${kp(pAt!==null?f1(pAt)+' kg':'—',dP!==null?sg(dP)+' kg desde o início':'peso atual')}</div>
+  <div class="card sec"><h2>Volume por semana</h2><div class="sub">Carga × repetições de todas as séries. A semana mais recente está destacada.</div>${barras(semVol,at)}</div>
+  <div class="card sec"><h2>Evolução das medidas</h2><select class="sel" data-k="metrica" style="margin:8px 0 12px">${opts}</select>${linha(serieMed(V.m).map(x=>[brd(x[0]),x[1]]))}
+  ${linhas?`<table class="tb" style="margin-top:12px"><tr><th>Medida</th><th>Início</th><th>Atual</th><th>Variação</th></tr>${linhas}</table>`:''}</div>
+  <div class="card sec"><h2>Progressão por exercício</h2><div class="sub">Maior carga de cada semana, somando os dias em que o exercício aparece. A linha mostra a tendência.</div>${lista||VZ}</div>
+  <div class="card sec"><h2>Séries por grupo muscular</h2><div class="sub">Quantas séries você já fez em cada grupo.</div>${grupos||VZ}</div>`;
+}
+
+/* ---------- gravar no próprio arquivo ---------- */
+function serializar(){
+  const c=document.documentElement.cloneNode(true);
+  c.querySelector('#app').innerHTML='';const t=c.querySelector('#toast');t.innerHTML='';t.className='';
+  c.querySelector('#dados').textContent=JSON.stringify({t:S.t,log:S.log,notas:S.notas,med:S.med}).replace(/</g,'\\u003c');
+  return '<!DOCTYPE html>\n'+c.outerHTML;
+}
+async function salvarArquivo() {
+    const html = serializar();
+    const blob = new Blob([html], {
+        type: 'text/html'
+    });
+
+    try {
+        /*
+         * Na primeira vez, o usuário seleciona o próprio index.html.
+         * O navegador guarda o handle e as próximas gravações
+         * sobrescrevem o mesmo arquivo.
+         */
+        if (!window.showOpenFilePicker) {
+            aviso('Use Chrome ou Edge para salvar no próprio arquivo.');
+            return;
+        }
+
+        if (!handle) {
+            const [fileHandle] = await window.showOpenFilePicker({
+                multiple: false,
+                types: [
+                    {
+                        description: 'Arquivo HTML',
+                        accept: {
+                            'text/html': ['.html', '.htm']
+                        }
+                    }
+                ]
+            });
+
+            handle = fileHandle;
+        }
+
+        /*
+         * Sobrescreve o arquivo selecionado.
+         */
+        const writable = await handle.createWritable();
+
+        await writable.write(blob);
+        await writable.close();
+
+        /*
+         * Atualiza o status da aplicação.
+         */
+        arqT = S.t;
+
+        status();
+
+        aviso('Arquivo atualizado ✓');
+
+    } catch (e) {
+
+        if (e.name !== 'AbortError') {
+            aviso('Não foi possível gravar: ' + e.message);
+        }
+    }
+}
+render();
+</script>
+
+
+</body></html>
