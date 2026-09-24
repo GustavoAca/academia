@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="theme-color" content="#2447d6">
+  <title>Treino Offline</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div id="app"></div>
+  <div id="toast" class=""></div>
+  
+  <script type="module">
+    import './js/db.js';
+    import './js/migration.js';
+    import './js/app.js';
+    import './js/workout-service.js';
+    import './js/backup-service.js';
+    
+    // Initialize application after all modules load
+    document.addEventListener('DOMContentLoaded', initApp);
+    
+    async function initApp() {
+      try {
+        await initIndexedDB();
+        await migrateData();
+        updateDBVersion();
+        renderInitialScreen();
+      } catch (err) {
+        console.error('Erro na inicialização:', err);
+        showToast('Erro ao iniciar aplicação');
+      }
+    }
+  </script>
+
+  <script>
+    // Register Service Worker for PWA offline functionality
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('service-worker.js')
+          .then((registration) => {
+            console.log('[PWA] Service Worker registered with scope:', registration.scope);
+            
+            // Check for update
+            registration.onupdatefound = () => {
+              const installingWorker = registration.installing;
+              installingWorker.onstatechange = () => {
+                if (installingWorker.state === 'installed') {
+                  if (navigator.serviceWorker.controller) {
+                    // New content is available
+                    showToast('Nova atualização disponível!');
+                  } else {
+                    // App just installed
+                    showToast('Aplicação instalada!');
+                  }
+                }
+              };
+            };
+          })
+          .catch((err) => {
+            console.error('[PWA] Service Worker registration failed:', err);
+          });
+      });
+    }
+    
+    // Handle app visibility change
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        // App went to background - timer might need to pause
+      }
+    });
+  </script>
+</body>
+</html>

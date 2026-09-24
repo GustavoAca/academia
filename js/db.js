@@ -1,0 +1,535 @@
+/**
+ * IndexedDB wrapper for the Treino PWA application.
+ * 
+ * Database structure with versioned stores:
+ * - exercises: id, nome, grupoMuscular, descricao, videoUrl, ativo
+ * - workouts: id, nome, diaSemana, ordem, ativo
+ * - workout_exercises: id, treinoId, exercicioId, ordem, seriesPlanejadas, repeticoesMinimas, repeticoesMaximas
+ * - executions: id, data, treinoId, exercicioId, serie, carga, repeticoes, observacao
+ * - measurements: id, data, peso, busto, abdomen, culote
+ * - settings: chave, valor
+ */
+
+const DB_NAME = 'treino_pwa';
+const DB_VERSION = 1;
+
+// Schema version history
+// DB_VERSION 1: initial schema
+// DB_VERSION 2: add new stores or fields
+// DB_VERSION 3: etc.
+
+let db = null;
+
+// Initialize database promise
+let dbPromise = null;
+
+/**
+ * Open the IndexedDB database and create object stores if needed.
+ * @returns {Promise<void>}
+ */
+async function initDB() {
+  if (db) return db;
+  
+  if (!dbPromise) {
+    dbPromise = new Promise((resolve, reject) => {
+      const request = indexedDB.open(DB_NAME, DB_VERSION);
+      
+      request.onupgradeneeded = (event) => {
+        db = event.target.result;
+        
+        // Create object stores if they don't exist
+        if (!db.objectStoreNames.contains('exercises')) {
+          const exercisesStore = db.createObjectStore('exercises', { keyPath: 'id', autoIncrement: true });
+          exercisesStore.createIndex('nome', 'nome', { unique: true });
+          exercisesStore.createIndex('grupoMuscular', 'grupoMuscular');
+          exercisesStore.createIndex('ativo', 'ativo');
+        }
+        
+        if (!db.objectStoreNames.contains('workouts')) {
+          const workoutsStore = db.createObjectStore('workouts', { keyPath: 'id', autoIncrement: true });
+          workoutsStore.createIndex('diaSemana', 'diaSemana');
+          workoutsStore.createIndex('ativo', 'ativo');
+        }
+        
+        if (!db.objectStoreNames.contains('workout_exercises')) {
+          const workoutExercisesStore = db.createObjectStore('workout_exercises', { keyPath: 'id', autoIncrement: true });
+          workoutExercisesStore.createIndex('treinoId', 'treinoId');
+          workoutExercisesStore.createIndex('exercicioId', 'exercicioId');
+          workoutExercisesStore.createIndex('ordem', 'ordem');
+        }
+        
+        if (!db.objectStoreNames.contains('executions')) {
+          const executionsStore = db.createObjectStore('executions', { keyPath: 'id', autoIncrement: true });
+          executionsStore.createIndex('treinoId', 'treinoId');
+          executionsStore.createIndex('exercicioId', 'exercicioId');
+          executionsStore.createIndex('data', 'data');
+        }
+        
+        if (!db.objectStoreNames.contains('measurements')) {
+          const measurementsStore = db.createObjectStore('measurements', { keyPath: 'id', autoIncrement: true });
+          measurementsStore.createIndex('data', 'data');
+        }
+        
+        if (!db.objectStoreNames.contains('settings')) {
+          const settingsStore = db.createObjectStore('settings', { keyPath: 'chave' });
+        }
+      };
+      
+      request.onsuccess = (event) => {
+        db = event.target.result;
+        resolve();
+      };
+      
+      request.onerror = (event) => {
+        reject(event.error);
+      };
+    });
+  }
+  
+  await dbPromise;
+  return db;
+}
+
+/**
+ * Save an exercise to the database.
+ * @param {Object} exercise - Exercise data {nome, grupoMuscular, descricao, videoUrl, ativo}
+ * @returns {Promise<Object>} Saved exercise with id
+ */
+async function saveExercise(exercise) {
+  const database = await initDB();
+  const transaction = database.transaction('exercises', 'readwrite');
+  const store = transaction.objectStore('exercises');
+  const request = store.add({
+    ...exercise,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  });
+  
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Get all exercises from the database.
+ * @param {Object} [filter] - Optional filter {grupoMuscular, ativo}
+ * @returns {Promise<Array>} Array of exercises
+ */
+async function getAllExercises(filter = {}) {
+  const database = await initDB();
+  const transaction = database.transaction('exercises', 'readonly');
+  const store = transaction.objectStore('exercises');
+  
+  let index;
+  if (filter.grupoMuscular) {
+    index = store.index('grupoMuscular');
+    const request = index.openCursor(IDBKeyRange.only(filter.grupoMuscular));
+    const results = [];
+    return new Promise((resolve, reject) => {
+      request.onsuccess = () => {
+        let cursor = request.result;
+        while (cursor) {
+          results.push(cursor.value);
+          cursor = cursor.continue();
+          resolve(results);
+        }
+        if (!request.result) resolve(results);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+  
+  if (filter.ativo !== undefined) {
+    index = store.index('ativo');
+    const request = index.openCursor(IDBKeyRange.only(filter.ativo));
+    const results = [];
+    return new Promise((resolve, reject) => {
+      request.onsuccess = () => {
+        let cursor = request.result;
+        while (cursor) {
+          results.push(cursor.value);
+          cursor = cursor.continue();
+        }
+        resolve(results);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+  
+  const request = store.getAll();
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Get a single exercise by id.
+ * @param {number} id - Exercise id
+ * @returns {Promise<Object|null>}
+ */
+async function getExercise(id) {
+  const database = await initDB();
+  const transaction = database.transaction('exercises', 'readonly');
+  const store = transaction.objectStore('exercises');
+  const request = store.get(id);
+  
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => {
+      const result = request.result;
+      resolve(result ? result : null);
+    };
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Update an exercise.
+ * @param {number} id - Exercise id
+ * @param {Object} updates - Updates to apply
+ * @returns {Promise<void>}
+ */
+async function updateExercise(id, updates) {
+  const database = await initDB();
+  const transaction = database.transaction('exercises', 'readwrite');
+  const store = transaction.objectStore('exercises');
+  const request = store.get(id);
+  
+  return new Promise((resolve, reject) => {
+    request.onsuccess = async () => {
+      const existing = request.result;
+      if (!existing) return reject(new Error(`Exercise ${id} not found`));
+      
+      const updated = { ...existing, ...updates, updatedAt: new Date().toISOString() };
+      const updateRequest = store.put(updated);
+      
+      updateRequest.onsuccess = () => resolve(updated);
+      updateRequest.onerror = () => reject(updateRequest.error);
+    };
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Delete an exercise.
+ * @param {number} id - Exercise id
+ * @returns {Promise<void>}
+ */
+async function deleteExercise(id) {
+  const database = await initDB();
+  const transaction = database.transaction('exercises', 'readwrite');
+  const store = transaction.objectStore('exercises');
+  const request = store.delete(id);
+  
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Save a workout to the database.
+ * @param {Object} workout - Workout data {nome, diaSemana, ordem, ativo}
+ * @returns {Promise<Object>} Saved workout with id
+ */
+async function saveWorkout(workout) {
+  const database = await initDB();
+  const transaction = database.transaction('workouts', 'readwrite');
+  const store = transaction.objectStore('workouts');
+  const request = store.add({
+    ...workout,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  });
+  
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Get all workouts, optionally filtered by day.
+ * @param {string} [diaSemana] - Filter by day (seg, ter, qua, qui, sex)
+ * @returns {Promise<Array>}
+ */
+async function getAllWorkouts(diaSemana = null) {
+  const database = await initDB();
+  const transaction = database.transaction('workouts', 'readonly');
+  const store = transaction.objectStore('workouts');
+  
+  let request;
+  if (diaSemana) {
+    const index = store.index('diaSemana');
+    request = index.openCursor(IDBKeyRange.only(diaSemana));
+  } else {
+    request = store.getAll();
+  }
+  
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => {
+      if (diaSemana) {
+        const results = [];
+        let cursor = request.result;
+        while (cursor) {
+          results.push(cursor.value);
+          cursor = cursor.continue();
+        }
+        resolve(results);
+      } else {
+        resolve(request.result);
+      }
+    };
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Save a workout exercise (the relationship between workout and exercise with settings).
+ * @param {Object} we - Workout exercise data {treinoId, exercicioId, ordem, seriesPlanejadas, repeticoesMinimas, repeticoesMaximas}
+ * @returns {Promise<Object>}
+ */
+async function saveWorkoutExercise(we) {
+  const database = await initDB();
+  const transaction = database.transaction('workout_exercises', 'readwrite');
+  const store = transaction.objectStore('workout_exercises');
+  const request = store.add({
+    ...we,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  });
+  
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Get workout exercises for a specific workout.
+ * @param {number} treinoId - Workout id
+ * @returns {Promise<Array>}
+ */
+async function getWorkoutExercises(treinoId) {
+  const database = await initDB();
+  const transaction = database.transaction('workout_exercises', 'readonly');
+  const store = transaction.objectStore('workout_exercises');
+  const index = store.index('treinoId');
+  const request = index.openCursor(IDBKeyRange.only(treinoId));
+  
+  const results = [];
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => {
+      let cursor = request.result;
+      while (cursor) {
+        results.push(cursor.value);
+        cursor = cursor.continue();
+      }
+      resolve(results);
+    };
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Save an execution (series data).
+ * @param {Object} execution - Execution data {treinoId, exercicioId, serie, carga, repeticoes, observacao}
+ * @returns {Promise<Object>}
+ */
+async function saveExecution(execution) {
+  const database = await initDB();
+  const transaction = database.transaction('executions', 'readwrite');
+  const store = transaction.objectStore('executions');
+  const request = store.add({
+    ...execution,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  });
+  
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Get executions for a specific exercise in a workout.
+ * @param {number} treinoId - Workout id
+ * @param {number} exercicioId - Exercise id
+ * @returns {Promise<Array>}
+ */
+async function getExecutions(treinoId, exercicioId) {
+  const database = await initDB();
+  const transaction = database.transaction('executions', 'readonly');
+  const store = transaction.objectStore('executions');
+  const index = store.index('treinoId');
+  
+  // Get all executions for this treinoId, then filter by exercicioId
+  const request = index.openCursor();
+  
+  const results = [];
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => {
+      let cursor = request.result;
+      while (cursor) {
+        const execution = cursor.value;
+        if (execution.exercicioId === exercicioId) {
+          results.push(execution);
+        }
+        cursor = cursor.continue();
+      }
+      resolve(results);
+    };
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Save measurement data.
+ * @param {Object} measurement - Measurement data {data, peso, busto, abdomen, culote}
+ * @returns {Promise<Object>}
+ */
+async function saveMeasurement(measurement) {
+  const database = await initDB();
+  const transaction = database.transaction('measurements', 'readwrite');
+  const store = transaction.objectStore('measurements');
+  const request = store.add({
+    ...measurement,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  });
+  
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Get all measurements, sorted by date descending.
+ * @returns {Promise<Array>}
+ */
+async function getAllMeasurements() {
+  const database = await initDB();
+  const transaction = database.transaction('measurements', 'readonly');
+  const store = transaction.objectStore('measurements');
+  const index = store.index('data');
+  
+  // Open cursor in reverse order (newest first)
+  const request = index.openCursor(null, 'prev');
+  
+  const results = [];
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => {
+      let cursor = request.result;
+      while (cursor) {
+        results.unshift(cursor.value); // Prepend to get newest first
+        cursor = cursor.continue();
+      }
+      resolve(results);
+    };
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Get the latest measurement.
+ * @returns {Promise<Object>}
+ */
+async function getLatestMeasurement() {
+  const measurements = await getAllMeasurements();
+  return measurements.length > 0 ? measurements[0] : null;
+}
+
+/**
+ * Save or update a setting.
+ * @param {string} chave - Setting key
+ * @param {any} valor - Setting value
+ * @returns {Promise<void>}
+ */
+async function saveSetting(chave, valor) {
+  const database = await initDB();
+  const transaction = database.transaction('settings', 'readwrite');
+  const store = transaction.objectStore('settings');
+  
+  // Use put to create or update
+  const request = store.put({
+    chave,
+    valor: JSON.stringify(valor),
+    updatedAt: new Date().toISOString()
+  });
+  
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Get a setting value.
+ * @param {string} chave - Setting key
+ * @returns {Promise<any>}
+ */
+async function getSetting(chave) {
+  const database = await initDB();
+  const transaction = database.transaction('settings', 'readonly');
+  const store = transaction.objectStore('settings');
+  const request = store.get(chave);
+  
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => {
+      const result = request.result;
+      if (result && result.valor) {
+        try {
+          resolve(JSON.parse(result.valor));
+        } catch (e) {
+          resolve(result.valor);
+        }
+      } else {
+        resolve(null);
+      }
+    };
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Delete all data (for migration/reset purposes).
+ * @returns {Promise<void>}
+ */
+async function clearAllData() {
+  const database = await initDB();
+  
+  const stores = ['exercises', 'workouts', 'workout_exercises', 'executions', 'measurements', 'settings'];
+  
+  await Promise.all(stores.map(storeName => {
+    const transaction = database.transaction(stores, 'readwrite');
+    return transaction.objectStore(storeName).clear();
+  }));
+  
+  return Promise.resolve();
+}
+
+export {
+  initDB,
+  saveExercise,
+  getAllExercises,
+  getExercise,
+  updateExercise,
+  deleteExercise,
+  saveWorkout,
+  getAllWorkouts,
+  saveWorkoutExercise,
+  getWorkoutExercises,
+  saveExecution,
+  getExecutions,
+  saveMeasurement,
+  getAllMeasurements,
+  getLatestMeasurement,
+  saveSetting,
+  getSetting,
+  clearAllData,
+  DB_NAME,
+  DB_VERSION
+};
