@@ -23,6 +23,8 @@ import {
   getLatestMeasurement,
   saveSetting,
   getSetting,
+  upsertExecution,
+  upsertMeasurement,
   clearAllData,
   DB_NAME,
   DB_VERSION
@@ -537,7 +539,7 @@ async function importData(backupData, overwrite = false) {
     return {
       success: false,
       error: validation.error,
-      details: 'O backup não pôe ser importado: ' + validation.error
+      details: 'O backup não pôde ser importado: ' + validation.error
     };
   }
   
@@ -559,11 +561,8 @@ async function importData(backupData, overwrite = false) {
     });
   }
   
-  // Clear and import, or just add if not overwriting
-  const importPromises = [];
-  
   if (overwrite) {
-    // Clear all data first and wait, so later adds land on empty stores
+    // Clear all data first and wait, so later writes land on empty stores
     const clearTransaction = database.transaction(stores, 'readwrite');
     for (const storeName of stores) {
       clearTransaction.objectStore(storeName).clear();
@@ -575,85 +574,157 @@ async function importData(backupData, overwrite = false) {
     });
   }
   
-  // Import exercises
-  if (backupData.exercises && backupData.exercises.length > 0) {
-    const transaction = database.transaction('exercises', 'readwrite');
-    const store = transaction.objectStore('exercises');
+  const stats = { exercises: 0, workouts: 0, measurements: 0, executions: 0, reaproveitados: 0, ignorados: 0 };
+  const idExercicio = new Map(); // id no backup -> id local
+  const idTreino = new Map();    // id no backup -> id local
+  
+  try {
+    // --- Exercícios: o índice 'nome' é único, então reaproveita os existentes ---
+    const exerciciosLocais = await getAllExercises();
+    const idExPorNome = new Map(exerciciosLocais.map(e => [e.nome, e.id]));
+    const idsLocaisEx = new Set(exerciciosLocais.map(e => e.id));
+    const paraCriarEx = [];
     
-    backupData.exercises.forEach((ex, index) => {
-      const request = store.add({
+    for (const ex of backupData.exercises || []) {
+      if (!ex || typeof ex.nome !== 'string') { stats.ignorados++; continue; }
+      if (idExPorNome.has(ex.nome)) {
+        if (ex.id !== undefined) idExercicio.set(ex.id, idExPorNome.get(ex.nome));
+        stats.reaproveitados++;
+        continue;
+      }
+      idExPorNome.set(ex.nome, null); // evita duplicar dentro do mesmo lote
+      paraCriarEx.push(ex);
+    }
+    
+    if (paraCriarEx.length > 0) {
+      const ids = await adicionarRegistros('exercises', paraCriarEx.map(ex => ({
         nome: ex.nome,
         grupoMuscular: ex.grupoMuscular,
         descricao: ex.descricao,
         videoUrl: ex.videoUrl,
         ativo: ex.ativo !== undefined ? ex.ativo : true
+      })));
+      ids.forEach((id, i) => {
+        const ex = paraCriarEx[i];
+        idExPorNome.set(ex.nome, id);
+        if (ex.id !== undefined) idExercicio.set(ex.id, id);
       });
-      importPromises.push(new Promise((resolve, reject) => {
-        request.onsuccess = () => resolve();
-        request.onerror = () => reject(request.error);
-      }));
-    });
-  }
-  
-  // Import workouts
-  if (backupData.workouts && backupData.workouts.length > 0) {
-    const transaction = database.transaction('workouts', 'readwrite');
-    const store = transaction.objectStore('workouts');
+      stats.exercises = ids.length;
+    }
     
-    backupData.workouts.forEach((wt, index) => {
-      const request = store.add({
+    // --- Treinos: o app usa um treino por dia da semana, então reaproveita
+    //     o treino do mesmo dia (e, se não houver, o de mesmo nome) ---
+    const treinosLocais = await getAllWorkouts();
+    const idTreinoPorDia = new Map(treinosLocais.filter(t => t.diaSemana).map(t => [t.diaSemana, t.id]));
+    const idTreinoPorNome = new Map(treinosLocais.map(t => [t.nome, t.id]));
+    const idsLocaisTreino = new Set(treinosLocais.map(t => t.id));
+    const diasUsados = new Set();
+    const nomesUsados = new Set();
+    const paraCriarTreino = [];
+    
+    for (const wt of backupData.workouts || []) {
+      if (!wt || typeof wt.nome !== 'string') { stats.ignorados++; continue; }
+      
+      const mesmoDia = typeof wt.diaSemana === 'string' && !diasUsados.has(wt.diaSemana) && idTreinoPorDia.has(wt.diaSemana);
+      const mesmoNome = !nomesUsados.has(wt.nome) && idTreinoPorNome.has(wt.nome);
+      const localId = mesmoDia ? idTreinoPorDia.get(wt.diaSemana) : (mesmoNome ? idTreinoPorNome.get(wt.nome) : null);
+      
+      if (typeof wt.diaSemana === 'string') diasUsados.add(wt.diaSemana);
+      nomesUsados.add(wt.nome);
+      
+      if (localId !== null && localId !== undefined) {
+        if (wt.id !== undefined) idTreino.set(wt.id, localId);
+        stats.reaproveitados++;
+        continue;
+      }
+      
+      paraCriarTreino.push(wt);
+    }
+    
+    if (paraCriarTreino.length > 0) {
+      const ids = await adicionarRegistros('workouts', paraCriarTreino.map(wt => ({
         nome: wt.nome,
         diaSemana: wt.diaSemana,
         ordem: wt.ordem,
         ativo: wt.ativo !== undefined ? wt.ativo : true
+      })));
+      ids.forEach((id, i) => {
+        const wt = paraCriarTreino[i];
+        if (wt.id !== undefined) idTreino.set(wt.id, id);
       });
-      importPromises.push(new Promise((resolve, reject) => {
-        request.onsuccess = () => resolve();
-        request.onerror = () => reject(request.error);
-      }));
-    });
-  }
-  
-  // Import measurements
-  if (backupData.measurements && backupData.measurements.length > 0) {
-    const transaction = database.transaction('measurements', 'readwrite');
-    const store = transaction.objectStore('measurements');
+      stats.workouts = ids.length;
+    }
     
-    backupData.measurements.forEach(med => {
-      const { id, createdAt, updatedAt, ...record } = med || {};
-      const request = store.add({ ...record });
-      importPromises.push(new Promise((resolve, reject) => {
-        request.onsuccess = () => resolve();
-        request.onerror = () => reject(request.error);
-      }));
-    });
-  }
-  
-  // Import executions
-  if (backupData.executions && backupData.executions.length > 0) {
-    const transaction = database.transaction('executions', 'readwrite');
-    const store = transaction.objectStore('executions');
+    // --- Medidas: upsert pela data (nunca duplica o mesmo dia) ---
+    for (const med of backupData.measurements || []) {
+      if (!med || !med.data) { stats.ignorados++; continue; }
+      const { id, createdAt, updatedAt, ...record } = med;
+      await upsertMeasurement(record);
+      stats.measurements++;
+    }
     
-    backupData.executions.forEach(exec => {
-      const { id, createdAt, updatedAt, ...record } = exec || {};
-      const request = store.add({ ...record });
-      importPromises.push(new Promise((resolve, reject) => {
-        request.onsuccess = () => resolve();
-        request.onerror = () => reject(request.error);
-      }));
-    });
+    // --- Séries: remapeia treino/exercício para os ids locais e faz upsert
+    //     pela chave natural (data + treino + exercício + série) ---
+    for (const exec of backupData.executions || []) {
+      if (!exec || !exec.data || !exec.serie) { stats.ignorados++; continue; }
+      
+      const treinoId = idTreino.has(exec.treinoId)
+        ? idTreino.get(exec.treinoId)
+        : (idsLocaisTreino.has(exec.treinoId) ? exec.treinoId : null);
+      const exercicioId = idExercicio.has(exec.exercicioId)
+        ? idExercicio.get(exec.exercicioId)
+        : (idsLocaisEx.has(exec.exercicioId) ? exec.exercicioId : null);
+      
+      if (treinoId === null || exercicioId === null) { stats.ignorados++; continue; }
+      
+      const { id, createdAt, updatedAt, ...record } = exec;
+      await upsertExecution({ ...record, treinoId, exercicioId });
+      stats.executions++;
+    }
+  } catch (err) {
+    console.error('Erro ao importar backup:', err);
+    return {
+      success: false,
+      error: err.message,
+      details: 'A importação foi interrompida. Importar o mesmo arquivo novamente é seguro: nada é duplicado.',
+      stats
+    };
   }
-  
-  await Promise.all(importPromises);
-  
-  const list = name => (Array.isArray(backupData[name]) ? backupData[name] : []);
   
   return {
     success: true,
     message: 'Dados importados com sucesso',
     existingCounts,
-    imported: list('exercises').length + list('workouts').length + list('measurements').length + list('executions').length
+    stats,
+    ignorados: stats.ignorados,
+    imported: stats.exercises + stats.workouts + stats.measurements + stats.executions
   };
+}
+
+/**
+ * Add records to a store in a single transaction and return the generated ids
+ * in the same order as the records.
+ * @param {string} storeName
+ * @param {Array<Object>} records
+ * @returns {Promise<Array<number>>}
+ */
+async function adicionarRegistros(storeName, records) {
+  const database = await initDB();
+  
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction(storeName, 'readwrite');
+    const store = transaction.objectStore(storeName);
+    const ids = new Array(records.length).fill(null);
+    
+    records.forEach((record, index) => {
+      const request = store.add(record);
+      request.onsuccess = () => { ids[index] = request.result; };
+    });
+    
+    transaction.oncomplete = () => resolve(ids);
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
 }
 
 /**

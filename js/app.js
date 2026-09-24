@@ -376,7 +376,11 @@ async function importarArquivo(file, tipo) {
       throw new Error((resultado && resultado.error) || 'Falha ao importar o backup');
     }
     await atualizarAposImportacao();
-    return `Backup importado: ${resultado.imported} registros`;
+    const partes = [];
+    if (resultado.imported) partes.push(`${resultado.imported} registros`);
+    if (resultado.stats && resultado.stats.reaproveitados) partes.push(`${resultado.stats.reaproveitados} reaproveitados`);
+    if (resultado.ignorados) partes.push(`${resultado.ignorados} ignorados`);
+    return `Backup importado: ${partes.join(', ') || 'nada novo'}`;
   }
 
   if (dados && (dados.log || dados.med || dados.notas)) {
