@@ -14,9 +14,22 @@
   <div id="app"></div>
   <div id="toast" class=""></div>
   
+  <!-- Define showToast globally BEFORE SW registration -->
+  <script>
+    window.showToast = function(message) {
+      const toast = document.getElementById('toast');
+      if (toast) {
+        toast.textContent = message;
+        toast.classList.add('show');
+        setTimeout(() => {
+          toast.classList.remove('show');
+        }, 3000);
+      }
+    };
+  </script>
+  
   <script type="module">
     import './js/db.js';
-    import './js/migration.js';
     import './js/app.js';
     import './js/workout-service.js';
     import './js/backup-service.js';
@@ -39,6 +52,7 @@
 
   <script>
     // Register Service Worker for PWA offline functionality
+    // NOTE: Service Workers only work over HTTP/HTTPS, NOT file:// protocol
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('service-worker.js')
@@ -63,8 +77,11 @@
           })
           .catch((err) => {
             console.error('[PWA] Service Worker registration failed:', err);
+            showToast('Falha ao registrar Service Worker');
           });
       });
+    } else {
+      showToast('Service Workers não suportados neste navegador');
     }
     
     // Handle app visibility change

@@ -29,7 +29,6 @@ jobs:
             "js/db.js"
             "js/app.js"
             "js/workout-service.js"
-            "js/migration.js"
           )
           
           for file in "${REQUIRED_FILES[@]}"; do
