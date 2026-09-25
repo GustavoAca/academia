@@ -29,16 +29,46 @@ import {
 import { getAllExecutions } from './report-service.js';
 import { exportBackup, importBackup, downloadBackup } from './backup-service.js';
 import { PLANO } from './plano.js';
+import {
+  rotinaPadrao,
+  getRotina,
+  salvarRotina,
+  totalSemanas,
+  fimRotina,
+  segundaDe,
+  dataParaDate,
+  diaAtivo,
+  defsDoDia,
+  nomeDoDia,
+  sincronizarCatalogo
+} from './rotina-service.js';
+
+import {
+  TIPOS_CARDIO,
+  adicionarCardio,
+  getCardiosByDate,
+  getAllCardios,
+  deleteCardio
+} from './cardio-service.js';
 
 /* --- Constants (same as exemplo.html) --- */
 
 const DIAS = ['seg', 'ter', 'qua', 'qui', 'sex'];
 const CURTO = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex'];
 const LONGO = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta'];
-const INI = new Date(2026, 8, 14);
-const MAXS = d => (d === 4 ? 15 : 16);
+
+/* The active routine replaces the old fixed PLANO/INI/MAXS constants. */
+let rotina = null;
+let rotinaRascunho = null;
+
+const iniDate = () => dataParaDate((rotina && rotina.inicio) || '2026-09-14');
+const semanas = () => totalSemanas(rotina || rotinaPadrao());
+const MAXS = d => {
+  const s = semanas();
+  return rotina && rotina.origem === 'plano' && d === 4 ? Math.max(1, s - 1) : s;
+};
 const dataDe = (s, d) => {
-  const x = new Date(INI);
+  const x = iniDate();
   x.setDate(x.getDate() + (s - 1) * 7 + d);
   return x;
 };
@@ -55,9 +85,9 @@ const ok = x => !!x && x.c !== undefined && x.c !== '' && x.r !== undefined && x
 /* --- Application state (mirrors V in exemplo.html) --- */
 
 const state = {
-  tela: 'treino', // 'treino' | 'med' | 'rel'
+  tela: 'treino', // 'treino' | 'rotina' | 'med' | 'rel'
   d: 0,           // day index 0..4 (Seg..Sex)
-  s: 1,           // program week 1..16
+  s: 1,           // program week 1..MAXS
   e: 0,           // exercise index within the day
   lista: false,   // list view instead of the set card
   md: hojeISO(),  // date selected in the Medidas screen
@@ -100,6 +130,8 @@ const showToast = aviso;
 async function initApp() {
   try {
     await initDB();
+    rotina = await getRotina();
+    await sincronizarCatalogo(rotina);
     await seedFromPlano();
     notas = (await getSetting('notas')) || {};
     await migrateFromLocalStorage();
@@ -178,7 +210,7 @@ async function loadCatalogo() {
 
   catalogo = {};
   for (const dia of DIAS) {
-    const defs = PLANO[dia].ex;
+    const defs = defsDoDia(rotina, dia).map(e => [e.nome, e.grupo, e.series, e.min, e.max]);
     const workout = workouts.find(w => w.diaSemana === dia) || null;
     const ids = defs.map(def => {
       const exercise = byName.get(def[0]);
@@ -248,11 +280,14 @@ async function importarDadosAntigos(log, med, notasAntigas) {
     if (!entry) continue;
 
     const [dia, semana, indiceExercicio, indiceSerie] = key.split('|');
-    const definicao = PLANO[dia] && PLANO[dia].ex[parseInt(indiceExercicio, 10)];
+    const idx = parseInt(indiceExercicio, 10);
+    const configurados = (rotina && rotina.treinos && rotina.treinos[dia] && rotina.treinos[dia].ex) || [];
+    const definicao = configurados[idx] || (PLANO[dia] && PLANO[dia].ex[idx]);
     const workout = workoutsByDay[dia];
     if (!definicao || !workout) continue;
 
-    const exercise = exercisesByName.get(definicao[0]);
+    const nomeExercicio = definicao.nome !== undefined ? definicao.nome : definicao[0];
+    const exercise = exercisesByName.get(nomeExercicio);
     if (!exercise) continue;
 
     const carga = num(entry.c);
@@ -402,6 +437,15 @@ async function importarArquivo(file, tipo) {
  */
 async function atualizarAposImportacao() {
   notas = (await getSetting('notas')) || notas;
+
+  const rotinaAntes = rotina && rotina.atualizadaEm;
+  rotina = await getRotina();
+  rotinaRascunho = null;
+  if (rotinaAntes !== rotina.atualizadaEm) {
+    await sincronizarCatalogo(rotina);
+    posicaoInicial();
+  }
+
   await loadCatalogo();
   await carregarLogDoDia();
   await render();
@@ -430,7 +474,7 @@ document.addEventListener('change', async ev => {
 
 function posicaoInicial() {
   const h = new Date();
-  const diff = Math.floor((new Date(h.getFullYear(), h.getMonth(), h.getDate()) - INI) / 864e5);
+  const diff = Math.floor((new Date(h.getFullYear(), h.getMonth(), h.getDate()) - iniDate()) / 864e5);
   let s = Math.floor(diff / 7) + 1;
   const dw = h.getDay();
 
@@ -444,7 +488,7 @@ function posicaoInicial() {
     state.d = dw - 1;
   }
 
-  state.s = Math.min(16, Math.max(1, s));
+  state.s = Math.min(semanas(), Math.max(1, s));
 }
 
 /* --- Day log (executions of the selected day/week in memory) --- */
@@ -579,7 +623,7 @@ function salvarSerie(serie) {
 /* --- Render --- */
 
 function tabs() {
-  return `<div class="tabs">${[['treino', 'Treino'], ['med', 'Medidas'], ['rel', 'Relatório']]
+  return `<div class="tabs">${[['treino', 'Treino'], ['rotina', 'Rotina'], ['med', 'Medidas'], ['rel', 'Relatório']]
     .map(t => `<button data-a="tela" data-t="${t[0]}" class="${state.tela === t[0] ? 'on' : ''}">${t[1]}</button>`)
     .join('')}</div>`;
 }
@@ -594,23 +638,28 @@ async function render() {
   if (state.tela !== 'treino') return renderOutra();
 
   const dia = DIAS[state.d];
-  const p = PLANO[dia];
   const mx = MAXS(state.d);
   if (state.s > mx) state.s = mx;
 
-  const n = p.ex.length;
+  const ativo = diaAtivo(rotina, dia);
+  const n = ativo ? defsAtuais().length : 0;
   if (state.e >= n) state.e = n - 1;
   if (state.e < 0) state.e = 0;
 
   await carregarLogDoDia();
 
-  const dias = CURTO.map((c, i) =>
-    `<button data-a="dia" data-v="${i}" class="${i === state.d ? 'on' : ''}"><b>${c}</b><small>${fmt(dataDe(state.s, i))}</small></button>`
-  ).join('');
+  const dias = CURTO.map((c, i) => {
+    const on = diaAtivo(rotina, DIAS[i]);
+    return `<button data-a="dia" data-v="${i}" class="${i === state.d ? 'on' : ''}" ${on ? '' : 'style="opacity:.55"'}><b>${c}</b><small>${fmt(dataDe(state.s, i))}</small></button>`;
+  }).join('');
 
   let corpo = '';
-  if (state.lista) {
-    corpo = p.ex.map((x, e) => {
+  if (!ativo) {
+    corpo = `<div class="card"><span class="grp">Descanso</span><h1>Dia sem treino</h1>
+      <div class="meta">Sua rotina não prevê treino em ${LONGO[state.d].toLowerCase()}. Registre o cardio abaixo se quiser.</div>
+      <div class="acoes"><button class="btn" data-a="tela" data-t="rotina">Editar minha rotina</button></div></div>`;
+  } else if (state.lista) {
+    corpo = defsAtuais().map((x, e) => {
       const f = feitas(e);
       const c = f >= x[2];
       return `<button class="li ${c ? 'ok' : ''} ${e === state.e ? 'at' : ''}" data-a="ir" data-v="${e}"><span class="n"><b>${esc(x[0])}</b><small>${esc(x[1])} · meta ${x[3]}–${x[4]}</small></span><span class="st">${c ? '✓ ' : ''}${f}/${x[2]}</span></button>`;
@@ -619,16 +668,18 @@ async function render() {
     corpo = await cardEx();
   }
 
+  const cardio = await cardCardio();
+
   document.getElementById('app').innerHTML = `<header>${tabs()}
     <div class="dias">${dias}</div>
-    <div class="sem"><div class="t">${LONGO[state.d]} · ${esc(p.t)}<small>${fmt(dataDe(state.s, state.d))}</small></div>
+    <div class="sem"><div class="t">${LONGO[state.d]} · ${esc(nomeDoDia(rotina, dia))}<small>${fmt(dataDe(state.s, state.d))}</small></div>
       <div class="step"><button data-a="sem" data-v="-1" ${state.s <= 1 ? 'disabled' : ''}>‹</button><span>Semana ${state.s}/${mx}</span><button data-a="sem" data-v="1" ${state.s >= mx ? 'disabled' : ''}>›</button></div></div>
     <div class="bar"><i id="pb"></i></div>
     <div class="res"><span id="rt"></span><span>${statusBtn()}</span></div>
-  </header><main>${corpo}</main>
-  <nav><div><button data-a="ant" ${state.lista || state.e === 0 ? 'disabled' : ''}>‹ Anterior</button>
-  <button class="c" data-a="lista">${state.lista ? 'Voltar' : '☰ ' + (state.e + 1) + '/' + n}</button>
-  <button class="p" data-a="prox" ${state.lista || state.e === n - 1 ? 'disabled' : ''}>Próximo ›</button></div></nav>`;
+  </header><main>${corpo}${cardio}</main>
+  <nav><div><button data-a="ant" ${state.lista || n === 0 || state.e === 0 ? 'disabled' : ''}>‹ Anterior</button>
+  <button class="c" data-a="lista" ${n === 0 ? 'disabled' : ''}>${state.lista ? 'Voltar' : n === 0 ? 'Descanso' : '☰ ' + (state.e + 1) + '/' + n}</button>
+  <button class="p" data-a="prox" ${state.lista || n === 0 || state.e === n - 1 ? 'disabled' : ''}>Próximo ›</button></div></nav>`;
 
   resumo();
 }
@@ -663,6 +714,33 @@ async function cardEx() {
   <div class="acoes">${u ? '<button class="btn" data-a="repetir">Preencher com a semana anterior</button>' : ''}</div></div>`;
 }
 
+/* --- Cardio (per day, on the Treino screen) --- */
+
+async function cardCardio() {
+  const data = iso(dataDe(state.s, state.d));
+  const lista = await getCardiosByDate(data);
+  const total = lista.reduce((a, x) => a + (Number(x.minutos) || 0), 0);
+
+  const itens = lista.map(x => `<div class="li"><span class="n"><b>${esc(x.tipo)}</b><small>${f1(Number(x.minutos) || 0)} min</small></span>
+    <button class="btn" style="width:40px;height:40px;flex:none" data-a="cremover" data-v="${x.id}" aria-label="Remover cardio">×</button></div>`).join('');
+
+  const tipos = TIPOS_CARDIO.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
+
+  return `<div class="card sec" style="margin-top:14px"><h2>Cardio</h2>
+    <div class="sub">${fmt(dataDe(state.s, state.d))} · ${f1(total)} min neste dia</div>
+    ${itens || '<div class="meta">Nenhum cardio registrado neste dia.</div>'}
+    <div class="frm" style="margin-top:10px">
+      <div><label>Atividade</label><select class="sel" data-k="ctipo" id="cardioTipo" aria-label="Atividade">${tipos}<option value="__outro">Outro…</option></select></div>
+      <div><label>Tempo (min)</label><input inputmode="decimal" id="cardioMin" placeholder="ex.: 30" aria-label="Minutos de cardio"></div>
+    </div>
+    <div id="cardioOutro" style="display:none">
+      <label style="font-size:12px;color:var(--mut)">Qual atividade?</label>
+      <input class="sel" id="cardioOutroNome" placeholder="ex.: Futebol" aria-label="Nome da atividade">
+    </div>
+    <div class="acoes"><button class="btn p" data-a="cadicionar">Adicionar cardio</button></div>
+  </div>`;
+}
+
 function resumo() {
   const t = totais();
   const pb = document.getElementById('pb');
@@ -683,8 +761,11 @@ function serieCampo(measurements, campo) {
 async function renderOutra() {
   await aguardarGravacoes();
 
-  const sub = state.tela === 'med' ? 'Medidas corporais' : 'Relatório de progresso';
-  const corpo = state.tela === 'med' ? await telaMed() : await telaRel();
+  const subs = { rotina: 'Minha rotina de treino', med: 'Medidas corporais', rel: 'Relatório de progresso' };
+  const sub = subs[state.tela] || '';
+  const corpo = state.tela === 'med' ? await telaMed()
+    : state.tela === 'rel' ? await telaRel()
+      : telaRotina();
 
   document.getElementById('app').innerHTML = `<header>${tabs()}
     <div class="res"><span>${sub}</span><span>${statusBtn()}</span></div></header><main>${corpo}</main>`;
@@ -726,7 +807,7 @@ async function registros() {
     const date = new Date(`${data}T00:00:00`);
     if (isNaN(date.getTime())) continue;
 
-    const diff = Math.floor((new Date(date.getFullYear(), date.getMonth(), date.getDate()) - INI) / 864e5);
+    const diff = Math.floor((new Date(date.getFullYear(), date.getMonth(), date.getDate()) - iniDate()) / 864e5);
     const s = Math.max(1, Math.floor(diff / 7) + 1);
     const dow = date.getDay();
     if (dow < 1 || dow > 5) continue;
@@ -768,13 +849,13 @@ async function telaRel() {
   const vol = R.reduce((a, x) => a + x.v, 0);
   const dias = new Set(R.map(x => x.d + '|' + x.s)).size;
   let plan = 0;
-  DIAS.forEach((k, d) => { plan += PLANO[k].ex.reduce((a, x) => a + x[2], 0) * MAXS(d); });
+  DIAS.forEach((k, d) => { plan += defsDoDia(rotina, k).reduce((a, x) => a + Number(x.series || 0), 0) * MAXS(d); });
 
   const pS = serieMed('peso');
   const pAt = pS.length ? pS[pS.length - 1][1] : null;
   const dP = pS.length > 1 ? pAt - pS[0][1] : null;
   const kp = (b, s) => `<div class="kpi"><b>${b}</b><small>${s}</small></div>`;
-  const semVol = Array.from({ length: 16 }, (_, i) => R.filter(x => x.s === i + 1).reduce((a, x) => a + x.v, 0));
+  const semVol = Array.from({ length: semanas() }, (_, i) => R.filter(x => x.s === i + 1).reduce((a, x) => a + x.v, 0));
   const at = Math.max(0, ...R.map(x => x.s));
 
   const gr = {};
@@ -808,17 +889,111 @@ async function telaRel() {
 
   const opts = MED.map(x => `<option value="${x[0]}" ${x[0] === state.m ? 'selected' : ''}>${x[1]}</option>`).join('');
 
+  const cardios = await getAllCardios();
+  const minTotal = cardios.reduce((a, x) => a + (Number(x.minutos) || 0), 0);
+  const porSemana = Array.from({ length: semanas() }, () => 0);
+  cardios.forEach(c => {
+    const d = dataParaDate(c.data);
+    const diff = Math.floor((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - iniDate()) / 864e5);
+    const s = Math.floor(diff / 7) + 1;
+    if (s >= 1 && s <= porSemana.length) porSemana[s - 1] += Number(c.minutos) || 0;
+  });
+  const maxMin = Math.max(1, ...porSemana);
+  const linhasCardio = porSemana
+    .map((min, i) => min > 0 ? `<div class="hbar"><span>Semana ${i + 1}</span><span><i style="width:${(min / maxMin * 100).toFixed(0)}%"></i></span><span>${f1(min)} min</span></div>` : '')
+    .join('');
+  const histCardio = cardios.slice(0, 10)
+    .map(c => `<tr><td>${brd(c.data)}</td><td style="text-align:left">${esc(c.tipo)}</td><td>${f1(Number(c.minutos) || 0)}</td></tr>`)
+    .join('');
+  const cardioCard = cardios.length
+    ? `<div class="card sec"><h2>Cardio</h2><div class="sub">${cardios.length} registros · ${Math.floor(minTotal / 60)}h ${Math.round(minTotal % 60)}min no total</div>${linhasCardio || '<div class="meta">Registros fora do período da rotina atual.</div>'}
+      <table class="tb" style="margin-top:10px"><tr><th>Dia</th><th>Atividade</th><th>Min</th></tr>${histCardio}</table></div>`
+    : `<div class="card sec"><h2>Cardio</h2><div class="sub">Nenhum cardio registrado ainda. Registre na tela Treino.</div></div>`;
+
   return `<div class="kpis">${kp(dias, 'treinos feitos')}${kp(R.length + '/' + plan, 'séries feitas')}${kp(Math.round(vol).toLocaleString('pt-BR') + ' kg', 'volume total')}${kp(pAt !== null ? f1(pAt) + ' kg' : '—', dP !== null ? sg(dP) + ' kg desde o início' : 'peso atual')}</div>
   <div class="card sec"><h2>Volume por semana</h2><div class="sub">Carga × repetições de todas as séries. A semana mais recente está destacada.</div>${barras(semVol, at)}</div>
   <div class="card sec"><h2>Evolução das medidas</h2><select class="sel" data-k="metrica" style="margin:8px 0 12px">${opts}</select>${linha(serieMed(state.m).map(x => [brd(x[0]), x[1]]))}
   ${linhas ? `<table class="tb" style="margin-top:12px"><tr><th>Medida</th><th>Início</th><th>Atual</th><th>Variação</th></tr>${linhas}</table>` : ''}</div>
   <div class="card sec"><h2>Progressão por exercício</h2><div class="sub">Maior carga de cada semana, somando os dias em que o exercício aparece. A linha mostra a tendência.</div>${lista || VZ}</div>
   <div class="card sec"><h2>Séries por grupo muscular</h2><div class="sub">Quantas séries você já fez em cada grupo.</div>${grupos || VZ}</div>
+  ${cardioCard}
   <div class="card sec"><h2>Backup e importação</h2><div class="sub">Baixe um backup do que está neste aparelho, importe um backup .json gerado por este app ou importe os dados preenchidos no exemplo (.json/.html).</div>
     <div class="acoes"><button class="btn" data-a="backup">Baixar backup</button><button class="btn p" data-a="importar-backup">Importar backup</button></div>
     <div class="acoes"><button class="btn" data-a="importar-exemplo">Importar dados do exemplo</button></div>
     <input type="file" id="arquivoBackup" accept=".json,application/json" style="display:none">
     <input type="file" id="arquivoExemplo" accept=".json,.html,.htm,application/json,text/html" style="display:none">
+  </div>`;
+}
+
+/* --- Rotina screen (personal routine builder) --- */
+
+function rascunhoRotina() {
+  if (!rotinaRascunho) rotinaRascunho = JSON.parse(JSON.stringify(rotina || rotinaPadrao()));
+  return rotinaRascunho;
+}
+
+function telaRotina() {
+  const r = rascunhoRotina();
+  const total = totalSemanas(r);
+  const ini = segundaDe(r.inicio);
+  const fim = fimRotina(r);
+
+  const durOpts = [['semanas', 'Semanas'], ['meses', 'Meses'], ['ate', 'Até uma data']]
+    .map(([v, l]) => `<option value="${v}" ${r.duracao.tipo === v ? 'selected' : ''}>${l}</option>`).join('');
+
+  const durCampo = r.duracao.tipo === 'ate'
+    ? `<div><label>Data final</label><input type="date" data-k="rate" value="${esc(r.duracao.ate || '')}"></div>`
+    : `<div><label>${r.duracao.tipo === 'meses' ? 'Meses' : 'Semanas'}</label><input inputmode="numeric" data-k="rvalor" value="${esc(String(r.duracao.valor))}"></div>`;
+
+  const dias = `<div class="dias">${DIAS.map((d, i) => `<button data-a="rdia" data-d="${d}" class="${r.dias[d] ? 'on' : ''}"><b>${CURTO[i]}</b><small>${r.dias[d] ? 'treino' : 'livre'}</small></button>`).join('')}</div>`;
+
+  const cards = DIAS.filter(d => r.dias[d]).map(d => cardDiaRotina(r, d)).join('');
+
+  return `<div class="card sec"><h2>Minha rotina</h2>
+    <div class="sub">Escolha os dias que treina, quantas séries faz em cada exercício e por quanto tempo vai seguir esta rotina.</div>
+    <div class="frm">
+      <div><label>Início</label><input type="date" data-k="rinicio" value="${esc(ini)}"></div>
+      <div><label>Duração</label><select class="sel" data-k="rtipo">${durOpts}</select></div>
+      ${durCampo}
+    </div>
+    <div class="meta" style="margin-top:10px">${total} semanas · de ${brd(ini)} a ${brd(fim)}</div>
+  </div>
+  <div class="card sec"><h2>Dias de treino</h2><div class="sub">Marque os dias em que você treina. Os dias livres viram descanso.</div>${dias}</div>
+  ${cards || '<div class="card"><div class="meta">Marque pelo menos um dia acima.</div></div>'}
+  <div class="acoes"><button class="btn p" data-a="rsalvar">Salvar rotina</button><button class="btn" data-a="rpadrao">Restaurar padrão</button></div>
+  <div class="meta" style="margin-top:8px">A semana 1 começa em ${brd(ini)}. Séries já registradas continuam no relatório.</div>`;
+}
+
+function cardDiaRotina(r, dia) {
+  const i = DIAS.indexOf(dia);
+  const t = r.treinos[dia];
+  const seriesDia = t.ex.reduce((a, e) => a + (Number(e.series) || 0), 0);
+
+  const jaTem = new Set(t.ex.map(e => e.nome));
+  const opcoes = [...exercisesById.values()]
+    .filter(e => !jaTem.has(e.nome))
+    .sort((a, b) => String(a.nome).localeCompare(String(b.nome)))
+    .map(e => `<option value="${esc(e.nome)}">${esc(e.nome)}</option>`).join('');
+
+  const linhas = t.ex.map((ex, idx) => `<div class="li" style="gap:8px">
+    <span class="n"><b>${esc(ex.nome)}</b><small>${esc(ex.grupo)} · ${esc(String(ex.series))} séries</small></span>
+    <span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
+      <input class="sel" style="width:60px;height:40px" inputmode="numeric" data-k="rserie" data-d="${dia}" data-i="${idx}" value="${esc(String(ex.series))}" aria-label="Séries de ${esc(ex.nome)}">
+      <input class="sel" style="width:56px;height:40px" inputmode="numeric" data-k="rmin" data-d="${dia}" data-i="${idx}" value="${esc(String(ex.min))}" aria-label="Repetições mínimas de ${esc(ex.nome)}">
+      <input class="sel" style="width:56px;height:40px" inputmode="numeric" data-k="rmax" data-d="${dia}" data-i="${idx}" value="${esc(String(ex.max))}" aria-label="Repetições máximas de ${esc(ex.nome)}">
+      <button class="btn" style="width:40px;height:40px;flex:none" data-a="rremover" data-d="${dia}" data-i="${idx}" aria-label="Remover ${esc(ex.nome)}">×</button>
+    </span></div>`).join('');
+
+  return `<div class="card sec"><h2>${LONGO[i]} · ${esc(t.t)}</h2>
+    <div class="sub">Séries e meta de repetições (${seriesDia} séries no dia)</div>
+    <input class="sel" data-k="rnome" data-d="${dia}" value="${esc(t.t)}" placeholder="Nome do treino" style="margin-bottom:10px" aria-label="Nome do treino ${LONGO[i]}">
+    ${linhas || '<div class="meta">Nenhum exercício neste dia.</div>'}
+    <div class="acoes"><select class="sel" data-k="radicionar" data-d="${dia}" aria-label="Adicionar exercício"><option value="">Adicionar exercício…</option>${opcoes}</select></div>
+    <div class="frm" style="margin-top:8px">
+      <div><label>Novo exercício</label><input data-k="rnovo" data-d="${dia}" placeholder="Nome"></div>
+      <div><label>Grupo muscular</label><input data-k="rnovogrp" data-d="${dia}" placeholder="ex.: Peito"></div>
+    </div>
+    <div class="acoes"><button class="btn" data-a="rcriar" data-d="${dia}">Criar e adicionar</button></div>
   </div>`;
 }
 
@@ -841,10 +1016,94 @@ async function baixarBackup() {
 
 /* --- Interactions --- */
 
+/**
+ * Mirror a routine form field into the draft (no re-render, so focus is kept).
+ * @param {string} k - data-k of the field
+ * @param {HTMLElement} el
+ * @returns {boolean} true when the field belongs to the routine form
+ */
+function campoRotina(k, el) {
+  const campos = ['rnome', 'rserie', 'rmin', 'rmax', 'rvalor', 'rinicio', 'rate'];
+  if (!campos.includes(k)) return false;
+
+  const r = rotinaRascunho;
+  if (!r) return true;
+
+  const dia = el.dataset.d;
+  const i = +(el.dataset.i || 0);
+
+  if (k === 'rinicio') {
+    if (el.value) r.inicio = el.value;
+    return true;
+  }
+  if (k === 'rate') {
+    if (el.value) r.duracao.ate = el.value;
+    return true;
+  }
+  if (k === 'rvalor') {
+    r.duracao.valor = el.value.replace(',', '.');
+    return true;
+  }
+  if (k === 'rnome') {
+    if (r.treinos[dia]) r.treinos[dia].t = el.value;
+    return true;
+  }
+
+  const ex = r.treinos[dia] && r.treinos[dia].ex[i];
+  if (ex) ex[k === 'rserie' ? 'series' : k === 'rmin' ? 'min' : 'max'] = el.value.replace(',', '.');
+  return true;
+}
+
+document.addEventListener('change', async ev => {
+  const el = ev.target;
+  const k = el.dataset.k;
+
+  if (k === 'rtipo') {
+    const r = rascunhoRotina();
+    r.duracao.tipo = el.value;
+    if (el.value === 'ate' && !r.duracao.ate) r.duracao.ate = fimRotina(r);
+    await render();
+    return;
+  }
+
+  if (k === 'rinicio' || k === 'rate' || k === 'rvalor') {
+    if (rotinaRascunho) await render();
+    return;
+  }
+
+  if (k === 'radicionar') {
+    const dia = el.dataset.d;
+    const nome = el.value;
+    if (!nome || !rotinaRascunho) return;
+
+    const exercise = exercisesById.get
+      ? [...exercisesById.values()].find(e => e.nome === nome)
+      : null;
+    if (!exercise) { aviso('Exercício não encontrado'); return; }
+
+    rotinaRascunho.treinos[dia].ex.push({
+      nome: exercise.nome,
+      grupo: exercise.grupoMuscular,
+      series: 3,
+      min: 8,
+      max: 12
+    });
+    await render();
+    return;
+  }
+
+  if (k === 'ctipo') {
+    const outro = document.getElementById('cardioOutro');
+    if (outro) outro.style.display = el.value === '__outro' ? '' : 'none';
+  }
+});
+
 document.addEventListener('input', async ev => {
   const el = ev.target;
   const k = el.dataset.k;
   if (!k) return;
+
+  if (k.startsWith('r') && campoRotina(k, el)) return;
 
   if (k === 'metrica') {
     state.m = el.value;
@@ -913,6 +1172,94 @@ document.addEventListener('click', async ev => {
   if (a === 'importar-exemplo') {
     const input = document.getElementById('arquivoExemplo');
     if (input) input.click();
+    return;
+  }
+
+  if (a === 'rdia') {
+    const r = rascunhoRotina();
+    r.dias[b.dataset.d] = !r.dias[b.dataset.d];
+    await render();
+    return;
+  }
+
+  if (a === 'rremover') {
+    const r = rascunhoRotina();
+    const t = r.treinos[b.dataset.d];
+    if (t) t.ex.splice(+(b.dataset.i || 0), 1);
+    await render();
+    return;
+  }
+
+  if (a === 'rcriar') {
+    const d = b.dataset.d;
+    const nomeEl = document.querySelector(`[data-k="rnovo"][data-d="${d}"]`);
+    const grpEl = document.querySelector(`[data-k="rnovogrp"][data-d="${d}"]`);
+    const nome = ((nomeEl && nomeEl.value) || '').trim();
+    if (!nome) { aviso('Informe o nome do exercício'); return; }
+
+    const r = rascunhoRotina();
+    if (r.treinos[d].ex.some(e => e.nome.toLowerCase() === nome.toLowerCase())) {
+      aviso('Este exercício já está no dia');
+      return;
+    }
+    r.treinos[d].ex.push({
+      nome,
+      grupo: ((grpEl && grpEl.value) || '').trim() || 'Outros',
+      series: 3,
+      min: 8,
+      max: 12
+    });
+    await render();
+    aviso('Exercício adicionado');
+    return;
+  }
+
+  if (a === 'rsalvar') {
+    try {
+      const salva = await salvarRotina(rascunhoRotina());
+      rotina = salva;
+      rotinaRascunho = null;
+      await sincronizarCatalogo(rotina);
+      await loadCatalogo();
+      posicaoInicial();
+      state.e = 0;
+      state.lista = false;
+      await render();
+      aviso('Rotina salva ✓');
+    } catch (err) {
+      console.error('Erro ao salvar rotina:', err);
+      aviso(err.message);
+    }
+    return;
+  }
+
+  if (a === 'rpadrao') {
+    rotinaRascunho = JSON.parse(JSON.stringify(rotinaPadrao()));
+    await render();
+    aviso('Plano padrão carregado — revise e toque em Salvar');
+    return;
+  }
+
+  if (a === 'cadicionar') {
+    const sel = document.getElementById('cardioTipo');
+    const outro = document.getElementById('cardioOutroNome');
+    const tipo = sel && sel.value !== '__outro' ? sel.value : ((outro && outro.value) || '');
+    const minutos = (document.getElementById('cardioMin') || {}).value || '';
+    try {
+      await adicionarCardio({ data: iso(dataDe(state.s, state.d)), tipo, minutos });
+      await render();
+      aviso('Cardio registrado ✓');
+    } catch (err) {
+      console.error('Erro ao registrar cardio:', err);
+      aviso(err.message);
+    }
+    return;
+  }
+
+  if (a === 'cremover') {
+    await deleteCardio(v);
+    await render();
+    aviso('Registro removido');
     return;
   }
 

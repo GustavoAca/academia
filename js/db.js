@@ -11,7 +11,7 @@
  */
 
 const DB_NAME = 'treino_pwa';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 // Schema version history
 // DB_VERSION 1: initial schema
@@ -68,6 +68,11 @@ async function initDB() {
         if (!db.objectStoreNames.contains('measurements')) {
           const measurementsStore = db.createObjectStore('measurements', { keyPath: 'id', autoIncrement: true });
           measurementsStore.createIndex('data', 'data');
+        }
+        
+        if (!db.objectStoreNames.contains('cardios')) {
+          const cardiosStore = db.createObjectStore('cardios', { keyPath: 'id', autoIncrement: true });
+          cardiosStore.createIndex('data', 'data');
         }
         
         if (!db.objectStoreNames.contains('settings')) {
@@ -284,6 +289,50 @@ async function getAllWorkouts(diaSemana = null) {
       }
     };
     request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Replace every workout exercise link of a workout in a single transaction.
+ * Used when the routine changes (order, series and rep range follow the routine).
+ * @param {number} treinoId - Workout id
+ * @param {Array<Object>} items - Links {exercicioId, ordem, seriesPlanejadas, repeticoesMinimas, repeticoesMaximas}
+ * @returns {Promise<void>}
+ */
+async function replaceWorkoutExercises(treinoId, items) {
+  const database = await initDB();
+  const transaction = database.transaction('workout_exercises', 'readwrite');
+  const store = transaction.objectStore('workout_exercises');
+  const index = store.index('treinoId');
+  const request = index.openCursor(IDBKeyRange.only(treinoId));
+  
+  request.onsuccess = () => {
+    const cursor = request.result;
+    if (cursor) {
+      cursor.delete();
+      cursor.continue();
+      return;
+    }
+    
+    const agora = new Date().toISOString();
+    items.forEach((item, i) => {
+      store.add({
+        treinoId,
+        exercicioId: item.exercicioId,
+        ordem: item.ordem !== undefined ? item.ordem : i + 1,
+        seriesPlanejadas: item.seriesPlanejadas,
+        repeticoesMinimas: item.repeticoesMinimas,
+        repeticoesMaximas: item.repeticoesMaximas,
+        createdAt: agora,
+        updatedAt: agora
+      });
+    });
+  };
+  
+  return new Promise((resolve, reject) => {
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
   });
 }
 
@@ -648,6 +697,103 @@ async function deleteMeasurementByDate(data) {
   });
 }
 
+/* --- Cardio sessions --- */
+
+/**
+ * Create or update a cardio session identified by (data, tipo).
+ * The lookup and the write happen in a single transaction, so logging the
+ * same activity twice on the same day updates the time instead of duplicating.
+ * @param {Object} cardio - { data, tipo, minutos, observacao? }
+ * @returns {Promise<void>}
+ */
+async function upsertCardio(cardio) {
+  const database = await initDB();
+  const transaction = database.transaction('cardios', 'readwrite');
+  const store = transaction.objectStore('cardios');
+  const index = store.index('data');
+  const request = index.openCursor(IDBKeyRange.only(cardio.data));
+  
+  let existing = null;
+  request.onsuccess = () => {
+    const cursor = request.result;
+    if (!cursor) {
+      const record = existing
+        ? { ...existing, ...cardio, id: existing.id, updatedAt: new Date().toISOString() }
+        : { ...cardio, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      store.put(record);
+      return;
+    }
+    
+    const value = cursor.value;
+    if (value.tipo === cardio.tipo) existing = value;
+    cursor.continue();
+  };
+  
+  return new Promise((resolve, reject) => {
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+}
+
+/**
+ * Get the cardio sessions of a day, sorted by activity type.
+ * @param {string} data - Date in YYYY-MM-DD format
+ * @returns {Promise<Array>}
+ */
+async function getCardiosByDate(data) {
+  const database = await initDB();
+  const transaction = database.transaction('cardios', 'readonly');
+  const store = transaction.objectStore('cardios');
+  const index = store.index('data');
+  const request = index.getAll(IDBKeyRange.only(data));
+  
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => {
+      const list = request.result || [];
+      list.sort((a, b) => String(a.tipo).localeCompare(String(b.tipo)));
+      resolve(list);
+    };
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Get every cardio session, newest day first.
+ * @returns {Promise<Array>}
+ */
+async function getAllCardios() {
+  const database = await initDB();
+  const transaction = database.transaction('cardios', 'readonly');
+  const store = transaction.objectStore('cardios');
+  const request = store.getAll();
+  
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => {
+      const list = request.result || [];
+      list.sort((a, b) => (a.data < b.data ? 1 : a.data > b.data ? -1 : 0));
+      resolve(list);
+    };
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Delete a cardio session.
+ * @param {number} id
+ * @returns {Promise<void>}
+ */
+async function deleteCardio(id) {
+  const database = await initDB();
+  const transaction = database.transaction('cardios', 'readwrite');
+  const request = transaction.objectStore('cardios').delete(id);
+  
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+}
+
 /**
  * Save or update a setting.
  * @param {string} chave - Setting key
@@ -707,7 +853,7 @@ async function getSetting(chave) {
 async function clearAllData() {
   const database = await initDB();
   
-  const stores = ['exercises', 'workouts', 'workout_exercises', 'executions', 'measurements', 'settings'];
+  const stores = ['exercises', 'workouts', 'workout_exercises', 'executions', 'measurements', 'cardios', 'settings'];
   
   await Promise.all(stores.map(storeName => {
     const transaction = database.transaction(stores, 'readwrite');
@@ -727,6 +873,7 @@ export {
   saveWorkout,
   getAllWorkouts,
   saveWorkoutExercise,
+  replaceWorkoutExercises,
   getWorkoutExercises,
   saveExecution,
   getExecutions,
@@ -740,6 +887,10 @@ export {
   getMeasurementByDate,
   upsertMeasurement,
   deleteMeasurementByDate,
+  upsertCardio,
+  getCardiosByDate,
+  getAllCardios,
+  deleteCardio,
   saveSetting,
   getSetting,
   clearAllData,

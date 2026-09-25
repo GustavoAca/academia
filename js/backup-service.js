@@ -5,7 +5,7 @@
  * as required by the project specifications.
  */
 
-import { initDB, getAllExercises, getAllWorkouts, getAllMeasurements, DB_VERSION } from './db.js';
+import { initDB, getAllExercises, getAllWorkouts, getAllMeasurements, getAllCardios, getSetting, DB_VERSION } from './db.js';
 import { importData as importDataService, validateBackupFormat } from './workout-service.js';
 import { getAllExecutions } from './report-service.js';
 
@@ -70,6 +70,17 @@ async function exportBackup() {
       const { id, createdAt, updatedAt, ...record } = m;
       return record;
     });
+
+    // Get cardio sessions (activity + minutes)
+    const cardios = await getAllCardios();
+    dataExport.cardios = cardios.map(c => {
+      const { id, createdAt, updatedAt, ...record } = c;
+      return record;
+    });
+
+    // Get the custom routine, when there is one
+    const rotinaSalva = await getSetting('rotina');
+    if (rotinaSalva) dataExport.rotina = rotinaSalva;
 
     // Generate filename
     const filename = `treino-backup-${year}-${month}-${day}.json`;
@@ -164,7 +175,7 @@ function validateBackupObject(data) {
   }
 
   // Check required sections
-  const requiredSections = ['exercises', 'workouts', 'executions', 'measurements'];
+  const requiredSections = ['exercises', 'workouts', 'executions', 'measurements', 'cardios'];
   for (const section of requiredSections) {
     if (data[section] !== undefined && !Array.isArray(data[section])) {
       return { valid: false, error: `Campo ${section} deve ser um array` };

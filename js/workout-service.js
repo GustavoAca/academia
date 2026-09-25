@@ -25,10 +25,12 @@ import {
   getSetting,
   upsertExecution,
   upsertMeasurement,
+  upsertCardio,
   clearAllData,
   DB_NAME,
   DB_VERSION
 } from './db.js';
+import { salvarRotina as salvarRotinaImportada } from './rotina-service.js';
 
 /* --- Exercise Operations --- */
 
@@ -544,7 +546,7 @@ async function importData(backupData, overwrite = false) {
   }
   
   const database = await initDB();
-  const stores = ['exercises', 'workouts', 'workout_exercises', 'executions', 'measurements', 'settings'];
+  const stores = ['exercises', 'workouts', 'workout_exercises', 'executions', 'measurements', 'cardios', 'settings'];
   
   // Count existing records (read the result inside onsuccess, never synchronously)
   const existingCounts = {};
@@ -574,7 +576,7 @@ async function importData(backupData, overwrite = false) {
     });
   }
   
-  const stats = { exercises: 0, workouts: 0, measurements: 0, executions: 0, reaproveitados: 0, ignorados: 0 };
+  const stats = { exercises: 0, workouts: 0, measurements: 0, executions: 0, cardios: 0, rotina: 0, reaproveitados: 0, ignorados: 0 };
   const idExercicio = new Map(); // id no backup -> id local
   const idTreino = new Map();    // id no backup -> id local
   
@@ -663,6 +665,25 @@ async function importData(backupData, overwrite = false) {
       stats.measurements++;
     }
     
+    // --- Cardio: upsert pela data + tipo (nunca duplica a mesma atividade) ---
+    for (const card of backupData.cardios || []) {
+      if (!card || !card.data || !card.tipo) { stats.ignorados++; continue; }
+      const { id, createdAt, updatedAt, ...record } = card;
+      await upsertCardio(record);
+      stats.cardios++;
+    }
+    
+    // --- Rotina personalizada (quando veio no backup) ---
+    if (backupData.rotina && typeof backupData.rotina === 'object' && backupData.rotina.dias && backupData.rotina.treinos) {
+      try {
+        await salvarRotinaImportada(backupData.rotina);
+        stats.rotina = 1;
+      } catch (err) {
+        console.warn('Rotina do backup ignorada:', err.message);
+        stats.ignorados++;
+      }
+    }
+    
     // --- Séries: remapeia treino/exercício para os ids locais e faz upsert
     //     pela chave natural (data + treino + exercício + série) ---
     for (const exec of backupData.executions || []) {
@@ -697,7 +718,7 @@ async function importData(backupData, overwrite = false) {
     existingCounts,
     stats,
     ignorados: stats.ignorados,
-    imported: stats.exercises + stats.workouts + stats.measurements + stats.executions
+    imported: stats.exercises + stats.workouts + stats.measurements + stats.executions + stats.cardios
   };
 }
 
@@ -752,6 +773,10 @@ function validateBackupFormat(backupData) {
   
   if (backupData.measurements && !Array.isArray(backupData.measurements)) {
     return { valid: false, error: 'Formato de measurements inválido: array esperado' };
+  }
+  
+  if (backupData.cardios && !Array.isArray(backupData.cardios)) {
+    return { valid: false, error: 'Formato de cardios inválido: array esperado' };
   }
   
   if (backupData.executions && !Array.isArray(backupData.executions)) {
