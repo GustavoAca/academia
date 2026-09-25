@@ -8,15 +8,17 @@
  * - executions: id, data, treinoId, exercicioId, serie, carga, repeticoes, observacao
  * - measurements: id, data, peso, busto, abdomen, culote
  * - settings: chave, valor
+ * - food_entries: id, data, refeicaoId, alimento, gramas, calorias, kcal100
+ * - foods: id, nome (unique), exibicao, vezes, ultimoGramas, ultimoCalorias, kcal100
  */
 
 const DB_NAME = 'treino_pwa';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 // Schema version history
 // DB_VERSION 1: initial schema
 // DB_VERSION 2: add new stores or fields
-// DB_VERSION 3: etc.
+// DB_VERSION 3: add food_entries and foods (alimentação)
 
 let db = null;
 
@@ -77,6 +79,17 @@ async function initDB() {
         
         if (!db.objectStoreNames.contains('settings')) {
           const settingsStore = db.createObjectStore('settings', { keyPath: 'chave' });
+        }
+
+        if (!db.objectStoreNames.contains('food_entries')) {
+          const foodEntriesStore = db.createObjectStore('food_entries', { keyPath: 'id', autoIncrement: true });
+          foodEntriesStore.createIndex('data', 'data');
+          foodEntriesStore.createIndex('refeicaoId', 'refeicaoId');
+        }
+
+        if (!db.objectStoreNames.contains('foods')) {
+          const foodsStore = db.createObjectStore('foods', { keyPath: 'id', autoIncrement: true });
+          foodsStore.createIndex('nome', 'nome', { unique: true });
         }
       };
       
@@ -794,6 +807,174 @@ async function deleteCardio(id) {
   });
 }
 
+/* --- Food entries (alimentação) --- */
+
+/**
+ * Create a food entry for a day/meal.
+ * @param {Object} entry - { data, refeicaoId, alimento, gramas, calorias }
+ * @returns {Promise<Object>} the saved entry with id
+ */
+async function addFoodEntry(entry) {
+  const database = await initDB();
+  const transaction = database.transaction('food_entries', 'readwrite');
+  const store = transaction.objectStore('food_entries');
+  const record = {
+    ...entry,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+  const request = store.add(record);
+
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve({ ...record, id: request.result });
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Get the food entries of a day.
+ * @param {string} data - Date in YYYY-MM-DD format
+ * @returns {Promise<Array>}
+ */
+async function getFoodEntriesByDate(data) {
+  const database = await initDB();
+  const transaction = database.transaction('food_entries', 'readonly');
+  const store = transaction.objectStore('food_entries');
+  const request = store.index('data').getAll(IDBKeyRange.only(data));
+
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => {
+      const list = request.result || [];
+      list.sort((a, b) => (a.id - b.id));
+      resolve(list);
+    };
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Get every food entry, newest day first.
+ * @returns {Promise<Array>}
+ */
+async function getAllFoodEntries() {
+  const database = await initDB();
+  const transaction = database.transaction('food_entries', 'readonly');
+  const store = transaction.objectStore('food_entries');
+  const request = store.getAll();
+
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => {
+      const list = request.result || [];
+      list.sort((a, b) => (a.data < b.data ? 1 : a.data > b.data ? -1 : (b.id - a.id)));
+      resolve(list);
+    };
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Delete a food entry.
+ * @param {number} id
+ * @returns {Promise<void>}
+ */
+async function deleteFoodEntry(id) {
+  const database = await initDB();
+  const transaction = database.transaction('food_entries', 'readwrite');
+  const request = transaction.objectStore('food_entries').delete(id);
+
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Create or update a catalog food identified by its lowercase name.
+ * @param {Object} food - { nome, exibicao, vezes, ultimoGramas, ultimoCalorias }
+ * @returns {Promise<Object>} the saved food with id
+ */
+async function upsertFood(food) {
+  const database = await initDB();
+  const transaction = database.transaction('foods', 'readwrite');
+  const store = transaction.objectStore('foods');
+  const index = store.index('nome');
+  const request = index.openCursor(IDBKeyRange.only(food.nome));
+
+  let existing = null;
+  request.onsuccess = () => {
+    const cursor = request.result;
+    if (!cursor) {
+      const record = existing
+        ? { ...existing, ...food, id: existing.id, updatedAt: new Date().toISOString() }
+        : { ...food, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      store.put(record);
+      return;
+    }
+
+    existing = cursor.value;
+    cursor.continue();
+  };
+
+  return new Promise((resolve, reject) => {
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+}
+
+/**
+ * Get a catalog food by its lowercase name.
+ * @param {string} nome - lowercase, normalized name
+ * @returns {Promise<Object|null>}
+ */
+async function getFoodByNome(nome) {
+  const database = await initDB();
+  const transaction = database.transaction('foods', 'readonly');
+  const store = transaction.objectStore('foods');
+  const request = store.index('nome').get(IDBKeyRange.only(nome));
+
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Get every catalog food, most used first.
+ * @returns {Promise<Array>}
+ */
+async function getAllFoods() {
+  const database = await initDB();
+  const transaction = database.transaction('foods', 'readonly');
+  const store = transaction.objectStore('foods');
+  const request = store.getAll();
+
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => {
+      const list = request.result || [];
+      list.sort((a, b) => (b.vezes || 0) - (a.vezes || 0));
+      resolve(list);
+    };
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Delete a catalog food.
+ * @param {number} id
+ * @returns {Promise<void>}
+ */
+async function deleteFood(id) {
+  const database = await initDB();
+  const transaction = database.transaction('foods', 'readwrite');
+  const request = transaction.objectStore('foods').delete(id);
+
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+}
+
 /**
  * Save or update a setting.
  * @param {string} chave - Setting key
@@ -853,7 +1034,7 @@ async function getSetting(chave) {
 async function clearAllData() {
   const database = await initDB();
   
-  const stores = ['exercises', 'workouts', 'workout_exercises', 'executions', 'measurements', 'cardios', 'settings'];
+  const stores = ['exercises', 'workouts', 'workout_exercises', 'executions', 'measurements', 'cardios', 'settings', 'food_entries', 'foods'];
   
   await Promise.all(stores.map(storeName => {
     const transaction = database.transaction(stores, 'readwrite');
@@ -891,6 +1072,14 @@ export {
   getCardiosByDate,
   getAllCardios,
   deleteCardio,
+  addFoodEntry,
+  getFoodEntriesByDate,
+  getAllFoodEntries,
+  deleteFoodEntry,
+  upsertFood,
+  getFoodByNome,
+  getAllFoods,
+  deleteFood,
   saveSetting,
   getSetting,
   clearAllData,

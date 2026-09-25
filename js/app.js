@@ -51,6 +51,25 @@ import {
   deleteCardio
 } from './cardio-service.js';
 
+import {
+  getRefeicoes,
+  criarRefeicao,
+  renomearRefeicao,
+  removerRefeicao,
+  getMeta,
+  salvarMeta,
+  adicionarItem,
+  removerItem,
+  buscarAlimento,
+  salvarReferencia,
+  getCatalogo,
+  resumoDoDia,
+  historicoCalorias,
+  distribuicaoRefeicao,
+  alimentosFrequentes,
+  treinoVsDescanso
+} from './food-service.js';
+
 /* --- Constants (same as exemplo.html) --- */
 
 const DIAS = ['seg', 'ter', 'qua', 'qui', 'sex'];
@@ -78,6 +97,7 @@ const fmt = x => `${String(x.getDate()).padStart(2, '0')}/${String(x.getMonth() 
 const brd = i => i.slice(8) + '/' + i.slice(5, 7);
 const esc = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const f1 = n => (Math.round(n * 10) / 10).toLocaleString('pt-BR');
+const r1n = n => Math.round(Number(n) * 10) / 10;
 const sg = n => (n > 0 ? '+' : n < 0 ? '−' : '') + f1(Math.abs(n));
 const VZ = '<div class="meta">Sem séries registradas ainda.</div>';
 const ok = x => !!x && x.c !== undefined && x.c !== '' && x.r !== undefined && x.r !== '';
@@ -85,13 +105,15 @@ const ok = x => !!x && x.c !== undefined && x.c !== '' && x.r !== undefined && x
 /* --- Application state (mirrors V in exemplo.html) --- */
 
 const state = {
-  tela: 'treino', // 'treino' | 'rotina' | 'med' | 'rel'
+  tela: 'treino', // 'treino' | 'rotina' | 'med' | 'alim' | 'rel'
   d: 0,           // day index 0..4 (Seg..Sex)
   s: 1,           // program week 1..MAXS
   e: 0,           // exercise index within the day
   lista: false,   // list view instead of the set card
   md: hojeISO(),  // date selected in the Medidas screen
-  m: 'peso'       // metric selected in the report chart
+  alim: hojeISO(),// date selected in the Alimentação screen
+  m: 'peso',      // metric selected in the report chart
+  p: 30           // period (days) of the food reports
 };
 
 let exercisesById = new Map();
@@ -623,7 +645,7 @@ function salvarSerie(serie) {
 /* --- Render --- */
 
 function tabs() {
-  return `<div class="tabs">${[['treino', 'Treino'], ['rotina', 'Rotina'], ['med', 'Medidas'], ['rel', 'Relatório']]
+  return `<div class="tabs">${[['treino', 'Treino'], ['rotina', 'Rotina'], ['med', 'Medidas'], ['alim', 'Alim.'], ['rel', 'Relatório']]
     .map(t => `<button data-a="tela" data-t="${t[0]}" class="${state.tela === t[0] ? 'on' : ''}">${t[1]}</button>`)
     .join('')}</div>`;
 }
@@ -761,11 +783,12 @@ function serieCampo(measurements, campo) {
 async function renderOutra() {
   await aguardarGravacoes();
 
-  const subs = { rotina: 'Minha rotina de treino', med: 'Medidas corporais', rel: 'Relatório de progresso' };
+  const subs = { rotina: 'Minha rotina de treino', med: 'Medidas corporais', alim: 'Alimentação', rel: 'Relatório de progresso' };
   const sub = subs[state.tela] || '';
   const corpo = state.tela === 'med' ? await telaMed()
-    : state.tela === 'rel' ? await telaRel()
-      : telaRotina();
+    : state.tela === 'alim' ? await telaAlimentacao()
+      : state.tela === 'rel' ? await telaRel()
+        : telaRotina();
 
   document.getElementById('app').innerHTML = `<header>${tabs()}
     <div class="res"><span>${sub}</span><span>${statusBtn()}</span></div></header><main>${corpo}</main>`;
@@ -792,6 +815,144 @@ async function telaMed() {
   return `<div class="card sec"><h2>Registrar medidas</h2><div class="sub">Peso quando quiser; as demais medidas, uma vez por semana. O número em cinza é o último valor registrado.</div>
   <input type="date" class="sel" data-k="mdata" value="${state.md}" style="margin-bottom:12px"><div class="frm">${campos}</div></div>
   <div class="card sec"><h2>Histórico</h2>${hist ? `<table class="tb"><tr><th>Data</th><th>Peso</th><th>Preenchido</th></tr>${hist}</table>` : '<div class="meta">Nada registrado ainda.</div>'}</div>`;
+}
+
+/* --- Alimentação screen --- */
+
+function refeicaoSugerida(refeicoes) {
+  const h = new Date().getHours();
+  const esperado = h < 10 ? 'cafe' : h < 14 ? 'almoco' : h < 18 ? 'lanche' : 'janta';
+  return refeicoes.some(r => r.id === esperado) ? esperado : (refeicoes[0] && refeicoes[0].id);
+}
+
+/**
+ * Keep the calorie field in sync with the grams when the food has a calorie
+ * reference per 100 g (kcal100). With a reference the field is read-only:
+ * calories always come from the conversion.
+ * @param {boolean} prefill - also pre-fill empty grams with the last ones used
+ */
+async function atualizarAlimAuto(prefill) {
+  const nomeEl = document.getElementById('alimNome');
+  const gEl = document.getElementById('alimG');
+  const kEl = document.getElementById('alimK');
+  const hint = document.getElementById('alimHint');
+  if (!nomeEl || !gEl || !kEl) return;
+
+  const f = await buscarAlimento(nomeEl.value);
+  const temRef = !!(f && f.kcal100);
+  kEl.readOnly = temRef;
+
+  if (!temRef) {
+    if (hint) {
+      hint.textContent = f
+        ? 'Este alimento ainda não tem referência por 100 g — informe as calorias.'
+        : 'Informe as gramas e as calorias deste alimento.';
+    }
+    return;
+  }
+
+  let g = Number(String(gEl.value || '').replace(',', '.'));
+  if (prefill && !(g > 0) && f.ultimoGramas) {
+    g = Number(f.ultimoGramas);
+    gEl.value = String(f.ultimoGramas).replace('.', ',');
+  }
+
+  if (g > 0) {
+    kEl.value = String(r1n(g * f.kcal100 / 100)).replace('.', ',');
+    hint.textContent = `${f.exibicao}: ${f1(f.kcal100)} kcal por 100 g · ${f1(g)} g → ${f1(Number(String(kEl.value).replace(',', '.')) || 0)} kcal`;
+  } else {
+    kEl.value = '';
+    hint.textContent = `${f.exibicao}: ${f1(f.kcal100)} kcal por 100 g · digite as gramas`;
+  }
+}
+
+async function telaAlimentacao() {
+  const data = state.alim;
+  const [resumo, refeicoes, catalogo] = await Promise.all([
+    resumoDoDia(data),
+    getRefeicoes(),
+    getCatalogo()
+  ]);
+
+  const meta = resumo.meta;
+  const excedeu = meta !== null && resumo.total > meta;
+  const falta = meta === null ? null : meta - resumo.total;
+  const pct = meta ? Math.min(100, resumo.total / meta * 100) : 0;
+  const kp = (b, s) => `<div class="kpi"><b>${b}</b><small>${s}</small></div>`;
+
+  const terceiro = falta === null
+    ? kp('—', 'defina uma meta diária')
+    : falta >= 0
+      ? kp(f1(falta) + ' kcal', 'faltam para a meta')
+      : kp(f1(-falta) + ' kcal', 'acima da meta');
+
+  const maxRef = Math.max(1, ...resumo.porRefeicao.map(r => r.total));
+  const porRef = resumo.porRefeicao.map(r => `<div class="hbar" style="grid-template-columns:96px 1fr 68px">
+    <span>${esc(r.nome)}</span><span><i style="width:${(r.total / maxRef * 100).toFixed(0)}%;background:${r.total ? 'var(--ac)' : 'var(--line)'}"></i></span>
+    <span style="white-space:nowrap">${f1(r.total)} kcal</span></div>`).join('');
+
+  const opts = refeicoes.map(r => `<option value="${r.id}">${esc(r.nome)}</option>`).join('');
+  const sugerida = refeicaoSugerida(refeicoes);
+  const chips = catalogo.slice(0, 12).map(f => {
+    const g = f.ultimoGramas === null || f.ultimoGramas === undefined ? '' : String(f.ultimoGramas).replace('.', ',');
+    const c = f.ultimoCalorias === null || f.ultimoCalorias === undefined ? '' : String(f.ultimoCalorias).replace('.', ',');
+    return `<button class="grp" data-a="alimchip" data-n="${esc(f.exibicao)}" data-g="${esc(g)}" data-c="${esc(c)}" style="border:0;cursor:pointer;margin:0 6px 6px 0;font:inherit">${esc(f.exibicao)}</button>`;
+  }).join('');
+
+  const grupos = resumo.porRefeicao.map(r => {
+    const itens = r.itens.map(i => `<div class="li"><span class="n"><b>${esc(i.alimento)}</b><small>${i.gramas !== null && i.gramas !== undefined ? f1(i.gramas) + ' g · ' : ''}${f1(i.calorias)} kcal</small></span>
+      <button class="btn" style="width:40px;height:40px;flex:none" data-a="iremoveralim" data-v="${i.id}" aria-label="Remover item">×</button></div>`).join('');
+    return `<div class="sub" style="margin-top:12px"><b>${esc(r.nome)}</b> · ${f1(r.total)} kcal</div>${itens || '<div class="meta">Nada registrado.</div>'}`;
+  }).join('');
+
+  const gerenciar = refeicoes.map(r => `<div class="li" style="padding:8px 10px">
+    <input class="sel" data-k="alimrefnome" data-v="${r.id}" value="${esc(r.nome)}" style="flex:1;height:40px;text-align:left" aria-label="Nome da refeição ${esc(r.nome)}">
+    <button class="btn" style="width:40px;height:40px;flex:none" data-a="alimrefdel" data-v="${r.id}" aria-label="Remover refeição ${esc(r.nome)}">×</button></div>`).join('');
+
+  const refsLista = catalogo.map(f => `<div class="li" style="padding:8px 10px">
+    <span class="n"><b>${esc(f.exibicao)}</b><small>${f.vezes || 0} registro${(f.vezes || 0) === 1 ? '' : 's'}</small></span>
+    <input class="sel" data-k="alkcal" data-n="${esc(f.nome)}" inputmode="decimal" value="${f.kcal100 === null || f.kcal100 === undefined ? '' : String(f.kcal100).replace('.', ',')}" placeholder="?" style="width:88px;flex:none;height:40px;text-align:center" aria-label="Calorias por 100 g de ${esc(f.exibicao)}">
+    <span style="font-size:12px;color:var(--mut);white-space:nowrap">kcal/100 g</span></div>`).join('');
+
+  return `<div class="card sec"><h2>Resumo do dia</h2>
+    <input type="date" class="sel" data-k="alimdata" value="${data}" style="margin-bottom:12px" aria-label="Data do registro">
+    <div class="kpis">${kp(f1(resumo.total), 'kcal no dia')}${kp(meta !== null ? f1(meta) + ' kcal' : '—', 'meta diária')}${terceiro}</div>
+    ${meta !== null ? `<div class="bar"><i style="width:${pct.toFixed(0)}%;background:${excedeu ? 'var(--warn)' : 'var(--ok)'}"></i></div>` : ''}
+    <div class="frm" style="margin-top:12px"><div><label>Meta diária (kcal)</label><input data-k="alimmeta" inputmode="decimal" value="${meta !== null ? String(meta).replace('.', ',') : ''}" placeholder="ex.: 2200" aria-label="Meta calórica diária"></div></div>
+    <div class="sub" style="margin-top:12px">Calorias por refeição</div>${porRef}
+  </div>
+
+  <div class="card sec"><h2>Registrar</h2>
+    <div class="sub">Com a referência de 100 g, digite só as gramas — as calorias vêm na conversão.</div>
+    <div class="frm">
+      <div><label>Refeição</label><select class="sel" id="alimRef" aria-label="Refeição">${opts.replace(`value="${sugerida}"`, `value="${sugerida}" selected`)}</select></div>
+      <div><label>Alimento</label><input id="alimNome" data-k="alimNome" placeholder="ex.: Frango grelhado" aria-label="Alimento"></div>
+      <div><label>Gramas</label><input id="alimG" data-k="alimG" inputmode="decimal" placeholder="ex.: 150" aria-label="Gramas"></div>
+      <div><label>Calorias</label><input id="alimK" data-k="alimK" inputmode="decimal" placeholder="ex.: 250" aria-label="Calorias"></div>
+    </div>
+    <div class="sub" id="alimHint" style="margin-top:8px">Informe as gramas e as calorias deste alimento.</div>
+    ${chips ? `<div style="margin-top:10px">${chips}</div>` : ''}
+    <div class="acoes"><button class="btn p" data-a="aalim">Adicionar</button></div>
+  </div>
+
+  <div class="card sec"><h2>Itens do dia</h2>${grupos}</div>
+
+  <div class="card sec"><h2>Alimentos por 100 g</h2>
+    <div class="sub">A referência de calorias a cada 100 g de cada alimento. Salvar um item nunca altera este valor — ele só muda aqui.</div>
+    ${refsLista || '<div class="meta">Nenhum alimento no catálogo ainda.</div>'}
+    <div class="frm" style="margin-top:8px">
+      <div style="grid-column:1/-1"><label>Novo alimento</label><input id="alimAlNovo" placeholder="ex.: Iogurte natural" aria-label="Novo alimento"></div>
+      <div><label>Calorias por 100 g</label><input id="alimKcalNovo" inputmode="decimal" placeholder="ex.: 60" aria-label="Calorias por 100 gramas"></div>
+    </div>
+    <div class="acoes"><button class="btn" data-a="alrefadd">Adicionar alimento</button></div>
+  </div>
+
+  <div class="card sec"><h2>Refeições</h2>
+    <div class="sub">Renomeie, crie ou remova refeições. Só é possível remover refeições sem itens.</div>
+    ${gerenciar}
+    <div class="frm" style="margin-top:8px"><div style="grid-column:1/-1"><label>Nova refeição</label><input id="alimRefNovo" placeholder="ex.: Ceia" aria-label="Nova refeição"></div></div>
+    <div class="acoes"><button class="btn" data-a="alimrefadd">Adicionar refeição</button></div>
+  </div>`;
 }
 
 async function registros() {
@@ -839,6 +1000,82 @@ function spark(v) {
   if (v.length < 2) return '';
   const lo = Math.min(...v), hi = Math.max(...v), sp = (hi - lo) || 1;
   return `<svg class="gr" viewBox="0 0 80 24"><polyline class="ln" style="stroke-width:2" points="${v.map((y, i) => (i * 76 / (v.length - 1) + 2) + ',' + (22 - (y - lo) / sp * 20)).join(' ')}"/></svg>`;
+}
+
+function barrasData(pts, media) {
+  if (!pts.length) return '';
+  const W = 320, H = 110, bw = W / pts.length;
+  const vals = pts.map(p => Number(p.v) || 0);
+  const m = Math.max(...vals, 1);
+  const passo = Math.max(1, Math.ceil(pts.length / 7));
+  let s = `<svg class="gr" viewBox="0 0 ${W} ${H + 16}"><text x="0" y="8">${Math.round(m).toLocaleString('pt-BR')} kcal</text>`;
+
+  if (media > 0) {
+    const y = H - media / m * (H - 16);
+    s += `<line class="gl" x1="0" x2="${W}" y1="${y}" y2="${y}" stroke-dasharray="4 3"/><text x="${W}" y="${y - 3}" text-anchor="end">média ${Math.round(media).toLocaleString('pt-BR')}</text>`;
+  }
+
+  pts.forEach((p, i) => {
+    const h = vals[i] / m * (H - 16);
+    s += `<rect class="b${i === pts.length - 1 ? ' at' : ''}" x="${i * bw + 1}" y="${H - h}" width="${Math.max(bw - 2, 1)}" height="${Math.max(h, 2)}" rx="2"/>`;
+    if (i % passo === 0) {
+      s += `<text x="${i * bw + bw / 2}" y="${H + 12}" text-anchor="middle">${brd(p.data)}</text>`;
+    }
+  });
+
+  return s + '</svg>';
+}
+
+async function cardRelAlimentacao() {
+  const dias = state.p;
+  const ate = hojeISO();
+  const kp = (b, s) => `<div class="kpi"><b>${b}</b><small>${s}</small></div>`;
+  const periodo = `<select class="sel" data-k="alimperiodo" aria-label="Período dos relatórios de alimentação" style="margin-bottom:10px">
+    ${[7, 30, 90].map(d => `<option value="${d}" ${d === dias ? 'selected' : ''}>Últimos ${d} dias</option>`).join('')}</select>`;
+
+  const [hist, dist, freq, vst, meta] = await Promise.all([
+    historicoCalorias(dias, ate),
+    distribuicaoRefeicao(dias, ate),
+    alimentosFrequentes(dias, ate),
+    treinoVsDescanso(dias, ate),
+    getMeta()
+  ]);
+
+  if (!freq.length) {
+    return `<div class="card sec"><h2>Alimentação</h2><div class="sub">Consumo de calorias por dia, por refeição e por alimento.</div>${periodo}
+      <div class="meta">Nenhum registro de alimentação no período. Registre na aba Alimentação.</div></div>`;
+  }
+
+  const registrados = hist.filter(h => h.total > 0);
+  const total = hist.reduce((a, h) => a + h.total, 0);
+  const media = total / registrados.length;
+  const maior = Math.max(...hist.map(h => h.total));
+  const desvio = meta !== null && registrados.length
+    ? registrados.reduce((a, h) => a + (h.total - meta), 0) / registrados.length
+    : null;
+
+  const linhasDist = dist.filter(d => d.total > 0).map(d => `<div class="hbar" style="grid-template-columns:96px 1fr 92px">
+    <span>${esc(d.nome)}</span><span><i style="width:${d.pct}%"></i></span>
+    <span style="white-space:nowrap">${d.pct}% · ${f1(d.total)} kcal</span></div>`).join('');
+
+  const linhasFreq = freq.slice(0, 12).map(f => `<tr><td>${esc(f.nome)}</td><td>${f.vezes}</td><td>${f1(f.media)}</td><td>${f1(f.total)}</td></tr>`).join('');
+
+  const kt = vst.treino.media !== null ? f1(vst.treino.media) + ' kcal' : '—';
+  const kd = vst.descanso.media !== null ? f1(vst.descanso.media) + ' kcal' : '—';
+
+  return `<div class="card sec"><h2>Alimentação</h2><div class="sub">Consumo de calorias no período. Use o seletor para mudar a janela de todos os cards abaixo.</div>${periodo}
+    <div class="kpis">${kp(f1(media) + ' kcal', 'média em dias com registro')}${kp(f1(maior) + ' kcal', 'maior dia do período')}${kp(registrados.length + '/' + dias, 'dias com registro')}${kp(desvio !== null ? sg(desvio) + ' kcal' : '—', desvio !== null ? 'média vs meta' : 'sem meta definida')}</div>
+    <div class="meta">${registrados.length} de ${dias} dias com registro · total de ${Math.round(total).toLocaleString('pt-BR')} kcal</div></div>
+
+  <div class="card sec"><h2>Calorias por dia</h2><div class="sub">Cada barra é um dia. A linha tracejada é a média dos dias com registro.</div>${barrasData(hist.map(h => ({ data: h.data, v: h.total })), media)}</div>
+
+  <div class="card sec"><h2>Distribuição por refeição</h2><div class="sub">De onde vêm as calorias do período.</div>${linhasDist || '<div class="meta">Sem dados no período.</div>'}</div>
+
+  <div class="card sec"><h2>Alimentos mais frequentes</h2><div class="sub">O que aparece com mais frequência e quanto de calorias cada uso traz.</div>
+    ${freq.length ? `<table class="tb"><tr><th>Alimento</th><th>Vezes</th><th>Média kcal</th><th>Total kcal</th></tr>${linhasFreq}</table>` : '<div class="meta">Sem dados no período.</div>'}</div>
+
+  <div class="card sec"><h2>Treino vs descanso</h2><div class="sub">Média de calorias em dias com e sem séries registradas (somente dias com registro de alimentação).</div>
+    <div class="kpis">${kp(kt, 'média em dias de treino · ' + vst.treino.dias + ' dias')}${kp(kd, 'média em dias de descanso · ' + vst.descanso.dias + ' dias')}</div></div>`;
 }
 
 async function telaRel() {
@@ -910,6 +1147,8 @@ async function telaRel() {
       <table class="tb" style="margin-top:10px"><tr><th>Dia</th><th>Atividade</th><th>Min</th></tr>${histCardio}</table></div>`
     : `<div class="card sec"><h2>Cardio</h2><div class="sub">Nenhum cardio registrado ainda. Registre na tela Treino.</div></div>`;
 
+  const alimCards = await cardRelAlimentacao();
+
   return `<div class="kpis">${kp(dias, 'treinos feitos')}${kp(R.length + '/' + plan, 'séries feitas')}${kp(Math.round(vol).toLocaleString('pt-BR') + ' kg', 'volume total')}${kp(pAt !== null ? f1(pAt) + ' kg' : '—', dP !== null ? sg(dP) + ' kg desde o início' : 'peso atual')}</div>
   <div class="card sec"><h2>Volume por semana</h2><div class="sub">Carga × repetições de todas as séries. A semana mais recente está destacada.</div>${barras(semVol, at)}</div>
   <div class="card sec"><h2>Evolução das medidas</h2><select class="sel" data-k="metrica" style="margin:8px 0 12px">${opts}</select>${linha(serieMed(state.m).map(x => [brd(x[0]), x[1]]))}
@@ -917,6 +1156,7 @@ async function telaRel() {
   <div class="card sec"><h2>Progressão por exercício</h2><div class="sub">Maior carga de cada semana, somando os dias em que o exercício aparece. A linha mostra a tendência.</div>${lista || VZ}</div>
   <div class="card sec"><h2>Séries por grupo muscular</h2><div class="sub">Quantas séries você já fez em cada grupo.</div>${grupos || VZ}</div>
   ${cardioCard}
+  ${alimCards}
   <div class="card sec"><h2>Backup e importação</h2><div class="sub">Baixe um backup do que está neste aparelho, importe um backup .json gerado por este app ou importe os dados preenchidos no exemplo (.json/.html).</div>
     <div class="acoes"><button class="btn" data-a="backup">Baixar backup</button><button class="btn p" data-a="importar-backup">Importar backup</button></div>
     <div class="acoes"><button class="btn" data-a="importar-exemplo">Importar dados do exemplo</button></div>
@@ -1107,6 +1347,43 @@ document.addEventListener('change', async ev => {
     const outro = document.getElementById('cardioOutro');
     if (outro) outro.style.display = el.value === '__outro' ? '' : 'none';
   }
+
+  if (k === 'alimmeta') {
+    try {
+      await salvarMeta(el.value);
+      await render();
+    } catch (err) {
+      aviso(err.message);
+    }
+    return;
+  }
+
+  if (k === 'alimrefnome') {
+    try {
+      await renomearRefeicao(el.dataset.v, el.value);
+      await render();
+    } catch (err) {
+      aviso(err.message);
+      await render();
+    }
+    return;
+  }
+
+  if (k === 'alimNome') {
+    await atualizarAlimAuto(true);
+    return;
+  }
+
+  if (k === 'alkcal') {
+    try {
+      await salvarReferencia(el.dataset.n, el.value);
+      aviso('Referência salva ✓');
+      await atualizarAlimAuto(false);
+    } catch (err) {
+      aviso(err.message);
+    }
+    return;
+  }
 });
 
 document.addEventListener('input', async ev => {
@@ -1128,6 +1405,26 @@ document.addEventListener('input', async ev => {
       state.md = el.value;
       await render();
     }
+    return;
+  }
+
+  if (k === 'alimdata') {
+    if (el.value) {
+      await aguardarGravacoes();
+      state.alim = el.value;
+      await render();
+    }
+    return;
+  }
+
+  if (k === 'alimperiodo') {
+    state.p = +el.value;
+    await render();
+    return;
+  }
+
+  if (k === 'alimNome' || k === 'alimG') {
+    await atualizarAlimAuto(false);
     return;
   }
 
@@ -1271,6 +1568,79 @@ document.addEventListener('click', async ev => {
     await deleteCardio(v);
     await render();
     aviso('Registro removido');
+    return;
+  }
+
+  if (a === 'aalim') {
+    try {
+      await adicionarItem({
+        data: state.alim,
+        refeicaoId: (document.getElementById('alimRef') || {}).value,
+        alimento: (document.getElementById('alimNome') || {}).value,
+        gramas: (document.getElementById('alimG') || {}).value,
+        calorias: (document.getElementById('alimK') || {}).value
+      });
+      await render();
+      aviso('Item registrado ✓');
+    } catch (err) {
+      console.error('Erro ao registrar item:', err);
+      aviso(err.message);
+    }
+    return;
+  }
+
+  if (a === 'alimchip') {
+    const nome = document.getElementById('alimNome');
+    const gr = document.getElementById('alimG');
+    const kc = document.getElementById('alimK');
+    if (nome) nome.value = b.dataset.n || '';
+    if (gr) gr.value = b.dataset.g || '';
+    if (kc) kc.value = b.dataset.c || '';
+    await atualizarAlimAuto(false);
+    if (gr) gr.focus();
+    return;
+  }
+
+  if (a === 'iremoveralim') {
+    await removerItem(v);
+    await render();
+    aviso('Item removido');
+    return;
+  }
+
+  if (a === 'alimrefadd') {
+    const refNovo = document.getElementById('alimRefNovo');
+    try {
+      await criarRefeicao(refNovo && refNovo.value);
+      await render();
+      aviso('Refeição criada ✓');
+    } catch (err) {
+      aviso(err.message);
+    }
+    return;
+  }
+
+  if (a === 'alimrefdel') {
+    try {
+      await removerRefeicao(b.dataset.v);
+      await render();
+      aviso('Refeição removida');
+    } catch (err) {
+      aviso(err.message);
+    }
+    return;
+  }
+
+  if (a === 'alrefadd') {
+    const alNovo = document.getElementById('alimAlNovo');
+    const kcalNovo = document.getElementById('alimKcalNovo');
+    try {
+      await salvarReferencia(alNovo && alNovo.value, kcalNovo && kcalNovo.value);
+      await render();
+      aviso('Alimento adicionado ✓');
+    } catch (err) {
+      aviso(err.message);
+    }
     return;
   }
 

@@ -5,7 +5,7 @@
  * as required by the project specifications.
  */
 
-import { initDB, getAllExercises, getAllWorkouts, getAllMeasurements, getAllCardios, getSetting, DB_VERSION } from './db.js';
+import { initDB, getAllExercises, getAllWorkouts, getAllMeasurements, getAllCardios, getAllFoodEntries, getAllFoods, getSetting, DB_VERSION } from './db.js';
 import { importData as importDataService, validateBackupFormat } from './workout-service.js';
 import { getAllExecutions } from './report-service.js';
 
@@ -33,7 +33,9 @@ async function exportBackup() {
       exercises: [],
       workouts: [],
       executions: [],
-      measurements: []
+      measurements: [],
+      foodEntries: [],
+      foods: []
     };
 
     // Get all exercises
@@ -81,6 +83,25 @@ async function exportBackup() {
     // Get the custom routine, when there is one
     const rotinaSalva = await getSetting('rotina');
     if (rotinaSalva) dataExport.rotina = rotinaSalva;
+
+    // Get food entries and the learned food catalog
+    const foodEntries = await getAllFoodEntries();
+    dataExport.foodEntries = foodEntries.map(i => {
+      const { id, createdAt, updatedAt, ...record } = i;
+      return record;
+    });
+
+    const foods = await getAllFoods();
+    dataExport.foods = foods.map(f => {
+      const { id, createdAt, updatedAt, ...record } = f;
+      return record;
+    });
+
+    // Meals list and daily calorie goal, when configured
+    const refeicoes = await getSetting('refeicoes');
+    if (refeicoes) dataExport.refeicoes = refeicoes;
+    const metaCalorias = await getSetting('metaCalorias');
+    if (metaCalorias !== null && metaCalorias !== undefined) dataExport.metaCalorias = metaCalorias;
 
     // Generate filename
     const filename = `treino-backup-${year}-${month}-${day}.json`;
@@ -175,7 +196,7 @@ function validateBackupObject(data) {
   }
 
   // Check required sections
-  const requiredSections = ['exercises', 'workouts', 'executions', 'measurements', 'cardios'];
+  const requiredSections = ['exercises', 'workouts', 'executions', 'measurements', 'cardios', 'foodEntries', 'foods'];
   for (const section of requiredSections) {
     if (data[section] !== undefined && !Array.isArray(data[section])) {
       return { valid: false, error: `Campo ${section} deve ser um array` };

@@ -26,6 +26,10 @@ import {
   upsertExecution,
   upsertMeasurement,
   upsertCardio,
+  addFoodEntry,
+  upsertFood,
+  getAllFoodEntries,
+  getAllFoods,
   clearAllData,
   DB_NAME,
   DB_VERSION
@@ -546,7 +550,7 @@ async function importData(backupData, overwrite = false) {
   }
   
   const database = await initDB();
-  const stores = ['exercises', 'workouts', 'workout_exercises', 'executions', 'measurements', 'cardios', 'settings'];
+  const stores = ['exercises', 'workouts', 'workout_exercises', 'executions', 'measurements', 'cardios', 'settings', 'food_entries', 'foods'];
   
   // Count existing records (read the result inside onsuccess, never synchronously)
   const existingCounts = {};
@@ -576,7 +580,7 @@ async function importData(backupData, overwrite = false) {
     });
   }
   
-  const stats = { exercises: 0, workouts: 0, measurements: 0, executions: 0, cardios: 0, rotina: 0, reaproveitados: 0, ignorados: 0 };
+  const stats = { exercises: 0, workouts: 0, measurements: 0, executions: 0, cardios: 0, foodEntries: 0, foods: 0, rotina: 0, reaproveitados: 0, ignorados: 0 };
   const idExercicio = new Map(); // id no backup -> id local
   const idTreino = new Map();    // id no backup -> id local
   
@@ -672,6 +676,52 @@ async function importData(backupData, overwrite = false) {
       await upsertCardio(record);
       stats.cardios++;
     }
+
+    // --- Alimentação: catálogo (sem duplicar nomes) e itens (sem repetir
+    //     o mesmo lançamento) ---
+    const foodsLocais = await getAllFoods();
+    const nomesFood = new Set(foodsLocais.map(f => f.nome));
+    for (const food of backupData.foods || []) {
+      if (!food || !food.nome) { stats.ignorados++; continue; }
+      if (nomesFood.has(food.nome)) { stats.reaproveitados++; continue; }
+      nomesFood.add(food.nome);
+      const { id, createdAt, updatedAt, ...record } = food;
+      await upsertFood(record);
+      stats.foods++;
+    }
+
+    const itensLocais = await getAllFoodEntries();
+    const chaveItem = i => [i.data, i.refeicaoId, i.alimento, i.gramas, i.calorias].join('|');
+    const itensExistentes = new Set(itensLocais.map(chaveItem));
+    for (const item of backupData.foodEntries || []) {
+      if (!item || !item.data || !item.refeicaoId || !item.alimento) { stats.ignorados++; continue; }
+      const { id, createdAt, updatedAt, ...record } = item;
+      const chave = chaveItem(record);
+      if (itensExistentes.has(chave)) { stats.reaproveitados++; continue; }
+      itensExistentes.add(chave);
+      await addFoodEntry(record);
+      stats.foodEntries++;
+    }
+
+    // --- Refeições e meta calórica (quando vieram no backup) ---
+    if (Array.isArray(backupData.refeicoes) && backupData.refeicoes.length) {
+      const limpas = backupData.refeicoes
+        .filter(r => r && r.id && String(r.nome || '').trim())
+        .map(r => ({ id: String(r.id), nome: String(r.nome).trim() }));
+      if (limpas.length) {
+        await saveSetting('refeicoes', limpas);
+        stats.refeicoes = 1;
+      } else {
+        stats.ignorados++;
+      }
+    }
+    if (backupData.metaCalorias !== undefined && backupData.metaCalorias !== null) {
+      const meta = Number(backupData.metaCalorias);
+      if (isFinite(meta) && meta > 0) {
+        await saveSetting('metaCalorias', meta);
+        stats.metaCalorias = 1;
+      }
+    }
     
     // --- Rotina personalizada (quando veio no backup) ---
     if (backupData.rotina && typeof backupData.rotina === 'object' && backupData.rotina.dias && backupData.rotina.treinos) {
@@ -718,7 +768,7 @@ async function importData(backupData, overwrite = false) {
     existingCounts,
     stats,
     ignorados: stats.ignorados,
-    imported: stats.exercises + stats.workouts + stats.measurements + stats.executions + stats.cardios
+    imported: stats.exercises + stats.workouts + stats.measurements + stats.executions + stats.cardios + stats.foodEntries + stats.foods
   };
 }
 
@@ -781,6 +831,14 @@ function validateBackupFormat(backupData) {
   
   if (backupData.executions && !Array.isArray(backupData.executions)) {
     return { valid: false, error: 'Formato de executions inválido: array esperado' };
+  }
+  
+  if (backupData.foodEntries && !Array.isArray(backupData.foodEntries)) {
+    return { valid: false, error: 'Formato de foodEntries inválido: array esperado' };
+  }
+  
+  if (backupData.foods && !Array.isArray(backupData.foods)) {
+    return { valid: false, error: 'Formato de foods inválido: array esperado' };
   }
   
   // Validate each exercise has required fields
