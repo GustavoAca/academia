@@ -672,7 +672,7 @@ async function render() {
 
   document.getElementById('app').innerHTML = `<header>${tabs()}
     <div class="dias">${dias}</div>
-    <div class="sem"><div class="t">${LONGO[state.d]} · ${esc(nomeDoDia(rotina, dia))}<small>${fmt(dataDe(state.s, state.d))}</small></div>
+    <div class="sem"><div class="t">${LONGO[state.d]}${nomeDoDia(rotina, dia) && nomeDoDia(rotina, dia) !== LONGO[state.d] ? ' · ' + esc(nomeDoDia(rotina, dia)) : ''}<small>${fmt(dataDe(state.s, state.d))}</small></div>
       <div class="step"><button data-a="sem" data-v="-1" ${state.s <= 1 ? 'disabled' : ''}>‹</button><span>Semana ${state.s}/${mx}</span><button data-a="sem" data-v="1" ${state.s >= mx ? 'disabled' : ''}>›</button></div></div>
     <div class="bar"><i id="pb"></i></div>
     <div class="res"><span id="rt"></span><span>${statusBtn()}</span></div>
@@ -900,7 +900,7 @@ async function telaRel() {
   });
   const maxMin = Math.max(1, ...porSemana);
   const linhasCardio = porSemana
-    .map((min, i) => min > 0 ? `<div class="hbar"><span>Semana ${i + 1}</span><span><i style="width:${(min / maxMin * 100).toFixed(0)}%"></i></span><span>${f1(min)} min</span></div>` : '')
+    .map((min, i) => min > 0 ? `<div class="hbar"><span>Semana ${i + 1}</span><span><i style="width:${(min / maxMin * 100).toFixed(0)}%"></i></span><span style="white-space:nowrap">${f1(min)} min</span></div>` : '')
     .join('');
   const histCardio = cardios.slice(0, 10)
     .map(c => `<tr><td>${brd(c.data)}</td><td style="text-align:left">${esc(c.tipo)}</td><td>${f1(Number(c.minutos) || 0)}</td></tr>`)
@@ -930,6 +930,13 @@ async function telaRel() {
 function rascunhoRotina() {
   if (!rotinaRascunho) rotinaRascunho = JSON.parse(JSON.stringify(rotina || rotinaPadrao()));
   return rotinaRascunho;
+}
+
+/** Draft that is being edited: any change makes it a personal routine. */
+function editarRotina() {
+  const r = rascunhoRotina();
+  r.origem = 'personalizada';
+  return r;
 }
 
 function telaRotina() {
@@ -975,16 +982,20 @@ function cardDiaRotina(r, dia) {
     .sort((a, b) => String(a.nome).localeCompare(String(b.nome)))
     .map(e => `<option value="${esc(e.nome)}">${esc(e.nome)}</option>`).join('');
 
-  const linhas = t.ex.map((ex, idx) => `<div class="li" style="gap:8px">
-    <span class="n"><b>${esc(ex.nome)}</b><small>${esc(ex.grupo)} · ${esc(String(ex.series))} séries</small></span>
-    <span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
-      <input class="sel" style="width:60px;height:40px" inputmode="numeric" data-k="rserie" data-d="${dia}" data-i="${idx}" value="${esc(String(ex.series))}" aria-label="Séries de ${esc(ex.nome)}">
-      <input class="sel" style="width:56px;height:40px" inputmode="numeric" data-k="rmin" data-d="${dia}" data-i="${idx}" value="${esc(String(ex.min))}" aria-label="Repetições mínimas de ${esc(ex.nome)}">
-      <input class="sel" style="width:56px;height:40px" inputmode="numeric" data-k="rmax" data-d="${dia}" data-i="${idx}" value="${esc(String(ex.max))}" aria-label="Repetições máximas de ${esc(ex.nome)}">
+  const linhas = t.ex.map((ex, idx) => `<div class="li" style="flex-direction:column;align-items:stretch;gap:8px">
+    <div style="display:flex;gap:8px;align-items:center">
+      <span class="n" style="flex:1;min-width:0"><b>${esc(ex.nome)}</b><small>${esc(ex.grupo)}</small></span>
       <button class="btn" style="width:40px;height:40px;flex:none" data-a="rremover" data-d="${dia}" data-i="${idx}" aria-label="Remover ${esc(ex.nome)}">×</button>
-    </span></div>`).join('');
+    </div>
+    <div style="display:flex;gap:8px">
+      <label style="flex:1;font-size:11px;color:var(--mut)">Séries<input class="sel" style="width:100%;height:40px;margin-top:4px" inputmode="numeric" data-k="rserie" data-d="${dia}" data-i="${idx}" value="${esc(String(ex.series))}" aria-label="Séries de ${esc(ex.nome)}"></label>
+      <label style="flex:1;font-size:11px;color:var(--mut)">Mín<input class="sel" style="width:100%;height:40px;margin-top:4px" inputmode="numeric" data-k="rmin" data-d="${dia}" data-i="${idx}" value="${esc(String(ex.min))}" aria-label="Repetições mínimas de ${esc(ex.nome)}"></label>
+      <label style="flex:1;font-size:11px;color:var(--mut)">Máx<input class="sel" style="width:100%;height:40px;margin-top:4px" inputmode="numeric" data-k="rmax" data-d="${dia}" data-i="${idx}" value="${esc(String(ex.max))}" aria-label="Repetições máximas de ${esc(ex.nome)}"></label>
+    </div></div>`).join('');
 
-  return `<div class="card sec"><h2>${LONGO[i]} · ${esc(t.t)}</h2>
+  const titulo = t.t && t.t !== LONGO[i] ? `${LONGO[i]} · ${esc(t.t)}` : LONGO[i];
+
+  return `<div class="card sec"><h2>${titulo}</h2>
     <div class="sub">Séries e meta de repetições (${seriesDia} séries no dia)</div>
     <input class="sel" data-k="rnome" data-d="${dia}" value="${esc(t.t)}" placeholder="Nome do treino" style="margin-bottom:10px" aria-label="Nome do treino ${LONGO[i]}">
     ${linhas || '<div class="meta">Nenhum exercício neste dia.</div>'}
@@ -1029,6 +1040,8 @@ function campoRotina(k, el) {
   const r = rotinaRascunho;
   if (!r) return true;
 
+  r.origem = 'personalizada';
+
   const dia = el.dataset.d;
   const i = +(el.dataset.i || 0);
 
@@ -1059,7 +1072,7 @@ document.addEventListener('change', async ev => {
   const k = el.dataset.k;
 
   if (k === 'rtipo') {
-    const r = rascunhoRotina();
+    const r = editarRotina();
     r.duracao.tipo = el.value;
     if (el.value === 'ate' && !r.duracao.ate) r.duracao.ate = fimRotina(r);
     await render();
@@ -1076,12 +1089,10 @@ document.addEventListener('change', async ev => {
     const nome = el.value;
     if (!nome || !rotinaRascunho) return;
 
-    const exercise = exercisesById.get
-      ? [...exercisesById.values()].find(e => e.nome === nome)
-      : null;
+    const exercise = [...exercisesById.values()].find(e => e.nome === nome);
     if (!exercise) { aviso('Exercício não encontrado'); return; }
 
-    rotinaRascunho.treinos[dia].ex.push({
+    editarRotina().treinos[dia].ex.push({
       nome: exercise.nome,
       grupo: exercise.grupoMuscular,
       series: 3,
@@ -1176,14 +1187,14 @@ document.addEventListener('click', async ev => {
   }
 
   if (a === 'rdia') {
-    const r = rascunhoRotina();
+    const r = editarRotina();
     r.dias[b.dataset.d] = !r.dias[b.dataset.d];
     await render();
     return;
   }
 
   if (a === 'rremover') {
-    const r = rascunhoRotina();
+    const r = editarRotina();
     const t = r.treinos[b.dataset.d];
     if (t) t.ex.splice(+(b.dataset.i || 0), 1);
     await render();
@@ -1197,7 +1208,7 @@ document.addEventListener('click', async ev => {
     const nome = ((nomeEl && nomeEl.value) || '').trim();
     if (!nome) { aviso('Informe o nome do exercício'); return; }
 
-    const r = rascunhoRotina();
+    const r = editarRotina();
     if (r.treinos[d].ex.some(e => e.nome.toLowerCase() === nome.toLowerCase())) {
       aviso('Este exercício já está no dia');
       return;
