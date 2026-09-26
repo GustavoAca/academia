@@ -713,32 +713,35 @@ async function deleteMeasurementByDate(data) {
 /* --- Cardio sessions --- */
 
 /**
- * Create or update a cardio session identified by (data, tipo).
+ * Create or update a cardio session identified by (data, tipo, momento).
  * The lookup and the write happen in a single transaction, so logging the
- * same activity twice on the same day updates the time instead of duplicating.
- * @param {Object} cardio - { data, tipo, minutos, observacao? }
+ * same activity in the same slot (start/end) of the same day updates the
+ * time instead of duplicating. Legacy records without `momento` count as 'f'.
+ * @param {Object} cardio - { data, tipo, minutos, momento?, observacao? }
  * @returns {Promise<void>}
  */
 async function upsertCardio(cardio) {
   const database = await initDB();
+  const momento = cardio && cardio.momento === 'i' ? 'i' : 'f';
+  const dado = { ...(cardio || {}), momento };
   const transaction = database.transaction('cardios', 'readwrite');
   const store = transaction.objectStore('cardios');
   const index = store.index('data');
-  const request = index.openCursor(IDBKeyRange.only(cardio.data));
+  const request = index.openCursor(IDBKeyRange.only(dado.data));
   
   let existing = null;
   request.onsuccess = () => {
     const cursor = request.result;
     if (!cursor) {
       const record = existing
-        ? { ...existing, ...cardio, id: existing.id, updatedAt: new Date().toISOString() }
-        : { ...cardio, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+        ? { ...existing, ...dado, id: existing.id, updatedAt: new Date().toISOString() }
+        : { ...dado, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
       store.put(record);
       return;
     }
     
     const value = cursor.value;
-    if (value.tipo === cardio.tipo) existing = value;
+    if (value.tipo === dado.tipo && (value.momento || 'f') === momento) existing = value;
     cursor.continue();
   };
   

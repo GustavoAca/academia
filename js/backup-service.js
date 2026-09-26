@@ -59,10 +59,10 @@ async function exportBackup() {
       ativo: wt.ativo
     }));
 
-    // Get all executions
+    // Get all executions (rir/falha were removed from the app)
     const executions = await getAllExecutions();
     dataExport.executions = executions.map(exec => {
-      const { id, createdAt, updatedAt, ...record } = exec;
+      const { id, createdAt, updatedAt, rir, falha, ...record } = exec;
       return record;
     });
 
@@ -102,6 +102,10 @@ async function exportBackup() {
     if (refeicoes) dataExport.refeicoes = refeicoes;
     const metaCalorias = await getSetting('metaCalorias');
     if (metaCalorias !== null && metaCalorias !== undefined) dataExport.metaCalorias = metaCalorias;
+
+    // Days where the start/end cardio was skipped
+    const cardioPulados = await getSetting('cardioPulados');
+    if (cardioPulados && typeof cardioPulados === 'object') dataExport.cardioPulados = cardioPulados;
 
     // Generate filename
     const filename = `treino-backup-${year}-${month}-${day}.json`;

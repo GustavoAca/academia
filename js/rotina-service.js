@@ -14,8 +14,13 @@
  *   nome, inicio: 'YYYY-MM-DD' (segunda-feira da semana 1),
  *   duracao: { tipo: 'semanas' | 'meses' | 'ate', valor, ate },
  *   dias: { seg, ter, qua, qui, sex },
- *   treinos: { seg: { t: 'Nome', ex: [{ nome, grupo, series, min, max }] }, ... }
+ *   treinos: { seg: { t: 'Nome', ex: [{ nome, grupo, series, min, max }],
+ *                     cardio: { i: { ativo, tipo, min }, f: { ativo, tipo, min } } }, ... }
  * }
+ *
+ * cardio.i é o cardio no início e cardio.f no final do treino. Padrão:
+ * apenas o final vem ativo (o início fica desligado até o usuário ativar).
+ * Dias antigos, salvos sem esse campo, caem nesse padrão via cardioConfig.
  */
 
 import {
@@ -63,13 +68,79 @@ function rotinaPadrao() {
 let cache = null;
 
 /**
+ * Cardio settings of one routine slot ('i' = start, 'f' = end of workout).
+ * Missing config falls back to the slot default: the end slot comes enabled,
+ * the start slot disabled (the user turns it on in the routine editor).
+ * @param {Object|undefined} x
+ * @param {boolean} padraoAtivo - default for the slot when there is no config
+ * @returns {{ativo: boolean, tipo: string, min: string}}
+ */
+function cardioConfig(x, padraoAtivo) {
+  const ativoPadrao = !!padraoAtivo;
+  if (!x || typeof x !== 'object') return { ativo: ativoPadrao, tipo: 'Caminhada', min: '' };
+  return {
+    ativo: x.ativo === undefined ? ativoPadrao : !!x.ativo,
+    tipo: String(x.tipo || '').trim() || 'Caminhada',
+    min: x.min === undefined || x.min === null ? '' : String(x.min)
+  };
+}
+
+/**
+ * Read the cardio config of a day/slot from any routine (saved or draft).
+ * @param {Object} r
+ * @param {string} dia - 'seg' | 'ter' | ...
+ * @param {string} m - 'i' | 'f'
+ * @returns {{ativo: boolean, tipo: string, min: string}}
+ */
+function cardioDoDia(r, dia, m) {
+  const slot = m === 'i' ? 'i' : 'f';
+  const t = r && r.treinos && r.treinos[dia];
+  return cardioConfig(t && t.cardio && t.cardio[slot], slot === 'f');
+}
+
+/**
+ * Make sure a routine draft has a writable cardio slot and return it.
+ * @param {Object} r - routine draft (mutated in place)
+ * @param {string} dia
+ * @param {string} m - 'i' | 'f'
+ * @returns {{ativo: boolean, tipo: string, min: string}}
+ */
+function garantirCardio(r, dia, m) {
+  const slot = m === 'i' ? 'i' : 'f';
+  const t = r && r.treinos && r.treinos[dia];
+  if (!t) return cardioConfig(null, slot === 'f');
+  if (!t.cardio || typeof t.cardio !== 'object') t.cardio = {};
+  t.cardio[slot] = cardioConfig(t.cardio[slot], slot === 'f');
+  return t.cardio[slot];
+}
+
+const CARDIO_VERSAO = 2;
+
+/**
+ * One-time adjustment: the start slot used to come enabled by default. Now
+ * only the end slot is on by default, so routines saved before this change
+ * get the start slot turned off (settings made later are kept).
+ * @param {Object} r - routine (mutated in place)
+ * @returns {Object}
+ */
+function migrarCardio(r) {
+  if (!r || r.cardioVersao === CARDIO_VERSAO) return r;
+  for (const dia of DIAS) {
+    const c = r.treinos && r.treinos[dia] && r.treinos[dia].cardio;
+    if (c && c.i) c.i.ativo = false;
+  }
+  r.cardioVersao = CARDIO_VERSAO;
+  return r;
+}
+
+/**
  * Get the active routine (falls back to the PLANO based one).
  * @returns {Promise<Object>}
  */
 async function getRotina() {
   if (cache) return cache;
   const salva = await getSetting(CHAVE_ROTINA);
-  cache = salva && salva.dias && salva.treinos ? salva : rotinaPadrao();
+  cache = migrarCardio(salva && salva.dias && salva.treinos ? salva : rotinaPadrao());
   return cache;
 }
 
@@ -150,10 +221,15 @@ function normalizar(r) {
         series: Math.max(1, Math.round(Number(ex.series) || 3)),
         min: Math.max(1, Math.round(Number(ex.min) || 8)),
         max: Math.max(1, Math.round(Number(ex.max) || 12))
-      })).filter(ex => ex.nome)
+      })).filter(ex => ex.nome),
+      cardio: {
+        i: cardioConfig(t && t.cardio && t.cardio.i, false),
+        f: cardioConfig(t && t.cardio && t.cardio.f, true)
+      }
     };
   }
 
+  out.cardioVersao = CARDIO_VERSAO;
   return out;
 }
 
@@ -321,6 +397,9 @@ export {
   restaurarPadrao,
   validarRotina,
   normalizar,
+  cardioConfig,
+  cardioDoDia,
+  garantirCardio,
   totalSemanas,
   fimRotina,
   segundaDe,

@@ -40,12 +40,17 @@ import {
   diaAtivo,
   defsDoDia,
   nomeDoDia,
+  cardioDoDia,
+  garantirCardio,
   sincronizarCatalogo
 } from './rotina-service.js';
 
 import {
   TIPOS_CARDIO,
   adicionarCardio,
+  getPulados,
+  setPulado,
+  todosPulados,
   getCardiosByDate,
   getAllCardios,
   deleteCardio
@@ -119,7 +124,7 @@ const state = {
 let exercisesById = new Map();
 let catalogo = {};  // day -> { workout, ids, defs }
 let notas = {};     // 'dia|semana|indiceExercicio' -> texto
-let logAtual = {};  // 'exercicioId|serie' -> { c, r, q, f }
+let logAtual = {};  // 'exercicioId|serie' -> { c, r }
 let medDraft = {};  // measurement record being edited for state.md
 let fila = Promise.resolve();
 
@@ -160,7 +165,7 @@ async function initApp() {
     await loadCatalogo();
     posicaoInicial();
     await carregarLogDoDia();
-    state.e = primeiroAberto();
+    state.e = await primeiroPasso();
     await render();
     showToast('Aplicação inicializada com sucesso');
   } catch (err) {
@@ -254,6 +259,31 @@ function treinoAtual() {
   return (catalogo[DIAS[state.d]] || {}).workout;
 }
 
+/**
+ * Ordered flow of the selected day: the start cardio (when the user enabled
+ * it), the exercises in routine order and the end cardio (on by default).
+ * state.e points into this list.
+ * @returns {Array<{k: 'cardio'|'ex', m?: 'i'|'f', i?: number}>}
+ */
+function passos() {
+  const dia = DIAS[state.d];
+  const defs = defsAtuais();
+  const p = [];
+  if (cardioDoDia(rotina, dia, 'i').ativo) p.push({ k: 'cardio', m: 'i' });
+  if (diaAtivo(rotina, dia)) defs.forEach((_, i) => p.push({ k: 'ex', i }));
+  if (cardioDoDia(rotina, dia, 'f').ativo) p.push({ k: 'cardio', m: 'f' });
+  return p;
+}
+
+/** Current step of the flow, or null when the day has no steps. */
+const passoAtual = () => passos()[state.e] || null;
+
+/** Exercise index of the current step (null while on a cardio step). */
+function exAtual() {
+  const p = passoAtual();
+  return p && p.k === 'ex' ? p.i : null;
+}
+
 /* --- Data Migration from old localStorage format --- */
 
 // Old single-file app stored everything in localStorage under 'treino2026':
@@ -314,9 +344,7 @@ async function importarDadosAntigos(log, med, notasAntigas) {
 
     const carga = num(entry.c);
     const repeticoes = num(entry.r);
-    const rir = num(entry.q);
-    const falha = !!entry.f;
-    if (carga === null && repeticoes === null && rir === null && !falha) continue;
+    if (carga === null && repeticoes === null) continue;
 
     await upsertExecution({
       data: iso(oldLogKeyToDate(dia, parseInt(semana, 10))),
@@ -325,8 +353,6 @@ async function importarDadosAntigos(log, med, notasAntigas) {
       serie: (parseInt(indiceSerie, 10) || 0) + 1,
       carga,
       repeticoes,
-      rir,
-      falha,
       observacao: entry.o || ''
     });
     series++;
@@ -519,9 +545,7 @@ function entradaDe(exec) {
   if (!exec) return {};
   return {
     c: exec.carga === null || exec.carga === undefined ? '' : String(exec.carga).replace('.', ','),
-    r: exec.repeticoes === null || exec.repeticoes === undefined ? '' : String(exec.repeticoes),
-    q: exec.rir === null || exec.rir === undefined ? '' : String(exec.rir).replace('.', ','),
-    f: !!exec.falha
+    r: exec.repeticoes === null || exec.repeticoes === undefined ? '' : String(exec.repeticoes)
   };
 }
 
@@ -541,12 +565,12 @@ async function carregarLogDoDia() {
 
 function gDe(exercicioId, serie) {
   const key = `${exercicioId}|${serie}`;
-  if (!logAtual[key]) logAtual[key] = { c: '', r: '', q: '', f: false };
+  if (!logAtual[key]) logAtual[key] = { c: '', r: '' };
   return logAtual[key];
 }
 
-function notaKey() {
-  return `${DIAS[state.d]}|${state.s}|${state.e}`;
+function notaKey(ei) {
+  return `${DIAS[state.d]}|${state.s}|${ei}`;
 }
 
 function feitas(e) {
@@ -561,9 +585,28 @@ function feitas(e) {
   return c;
 }
 
-function primeiroAberto() {
-  const ex = defsAtuais();
-  for (let e = 0; e < ex.length; e++) if (feitas(e) < ex[e][2]) return e;
+/**
+ * First step of the flow: the start cardio when it is still pending,
+ * otherwise the first exercise with sets left (0 when everything is done).
+ * @returns {Promise<number>} index into passos()
+ */
+async function primeiroPasso() {
+  const ps = passos();
+  if (!ps.length) return 0;
+
+  const primeiro = ps[0];
+  if (primeiro.k === 'cardio' && primeiro.m === 'i') {
+    const data = iso(dataDe(state.s, state.d));
+    const pulado = (await getPulados(data)).i;
+    const feito = (await getCardiosByDate(data)).some(x => (x.momento || 'f') === 'i');
+    if (!pulado && !feito) return 0;
+  }
+
+  const defs = defsAtuais();
+  for (let i = 0; i < ps.length; i++) {
+    const p = ps[i];
+    if (p.k === 'ex' && feitas(p.i) < defs[p.i][2]) return i;
+  }
   return 0;
 }
 
@@ -616,14 +659,16 @@ function totais() {
 /* --- Saving a single set --- */
 
 function salvarSerie(serie) {
-  const id = idsAtuais()[state.e];
+  const ei = exAtual();
+  if (ei === null) return;
+  const id = idsAtuais()[ei];
   const workout = treinoAtual();
   const g = id === null || id === undefined ? null : logAtual[`${id}|${serie}`];
   if (!g || !workout) return;
 
   const data = iso(dataDe(state.s, state.d));
 
-  if (!g.c && !g.r && !g.q && !g.f) {
+  if (!g.c && !g.r) {
     gravar(() => deleteExecution(data, workout.id, id, serie));
     return;
   }
@@ -634,9 +679,7 @@ function salvarSerie(serie) {
     exercicioId: id,
     serie,
     carga: num(g.c),
-    repeticoes: num(g.r),
-    rir: num(g.q),
-    falha: !!g.f
+    repeticoes: num(g.r)
   };
 
   gravar(() => upsertExecution(record));
@@ -664,33 +707,66 @@ async function render() {
   if (state.s > mx) state.s = mx;
 
   const ativo = diaAtivo(rotina, dia);
-  const n = ativo ? defsAtuais().length : 0;
+  const ps = passos();
+  const n = ps.length;
   if (state.e >= n) state.e = n - 1;
   if (state.e < 0) state.e = 0;
 
   await carregarLogDoDia();
+
+  const dataHoje = iso(dataDe(state.s, state.d));
+  const pulados = await getPulados(dataHoje);
+  const cardiosDia = await getCardiosByDate(dataHoje);
 
   const dias = CURTO.map((c, i) => {
     const on = diaAtivo(rotina, DIAS[i]);
     return `<button data-a="dia" data-v="${i}" class="${i === state.d ? 'on' : ''}" ${on ? '' : 'style="opacity:.55"'}><b>${c}</b><small>${fmt(dataDe(state.s, i))}</small></button>`;
   }).join('');
 
-  let corpo = '';
-  if (!ativo) {
-    corpo = `<div class="card"><span class="grp">Descanso</span><h1>Dia sem treino</h1>
-      <div class="meta">Sua rotina não prevê treino em ${LONGO[state.d].toLowerCase()}. Registre o cardio abaixo se quiser.</div>
-      <div class="acoes"><button class="btn" data-a="tela" data-t="rotina">Editar minha rotina</button></div></div>`;
-  } else if (state.lista) {
-    corpo = defsAtuais().map((x, e) => {
-      const f = feitas(e);
-      const c = f >= x[2];
-      return `<button class="li ${c ? 'ok' : ''} ${e === state.e ? 'at' : ''}" data-a="ir" data-v="${e}"><span class="n"><b>${esc(x[0])}</b><small>${esc(x[1])} · meta ${x[3]}–${x[4]}</small></span><span class="st">${c ? '✓ ' : ''}${f}/${x[2]}</span></button>`;
-    }).join('');
-  } else {
-    corpo = await cardEx();
-  }
+  const passoNome = i => {
+    const p = ps[i];
+    if (!p) return '';
+    if (p.k === 'cardio') return p.m === 'i' ? 'Cardio inicial' : 'Cardio final';
+    const d = defsAtuais()[p.i];
+    return d ? esc(d[0]) : '';
+  };
 
-  const cardio = await cardCardio();
+  const statusCardio = m => {
+    if (pulados[m]) return { txt: 'pulado', ok: false };
+    const total = cardiosDia.filter(x => (x.momento || 'f') === m)
+      .reduce((a, x) => a + (Number(x.minutos) || 0), 0);
+    return total > 0 ? { txt: f1(total) + ' min', ok: true } : { txt: 'pendente', ok: false };
+  };
+
+  const descansoCard = `<div class="card"><span class="grp">Descanso</span><h1>Dia sem treino</h1>
+      <div class="meta">Sua rotina não prevê treino em ${LONGO[state.d].toLowerCase()}. Registre o cardio se quiser.</div>
+      <div class="acoes"><button class="btn" data-a="tela" data-t="rotina">Editar minha rotina</button></div></div>`;
+
+  const pAtual = ps[state.e] || null;
+  const ehCardio = !!(pAtual && pAtual.k === 'cardio');
+
+  let corpo = '';
+  if (state.lista && n > 0) {
+    corpo = ps.map((p, i) => {
+      const at = i === state.e ? 'at' : '';
+      if (p.k === 'cardio') {
+        const st = statusCardio(p.m);
+        return `<button class="li ${st.ok ? 'ok' : ''} ${at}" data-a="ir" data-v="${i}"><span class="n"><b>${p.m === 'i' ? 'Cardio inicial' : 'Cardio final'}</b><small>${p.m === 'i' ? 'antes dos exercícios' : 'depois dos exercícios'}</small></span><span class="st">${st.ok ? '✓ ' : ''}${st.txt}</span></button>`;
+      }
+      const x = defsAtuais()[p.i];
+      const f = feitas(p.i);
+      const c = f >= x[2];
+      return `<button class="li ${c ? 'ok' : ''} ${at}" data-a="ir" data-v="${i}"><span class="n"><b>${esc(x[0])}</b><small>${esc(x[1])} · meta ${x[3]}–${x[4]}</small></span><span class="st">${c ? '✓ ' : ''}${f}/${x[2]}</span></button>`;
+    }).join('');
+  } else if (!ativo) {
+    corpo = descansoCard + (ehCardio ? await cardPassoCardio(pAtual.m, pulados, cardiosDia) : '');
+  } else if (ehCardio) {
+    corpo = await cardPassoCardio(pAtual.m, pulados, cardiosDia);
+  } else if (pAtual) {
+    corpo = await cardEx(pAtual.i);
+  } else {
+    corpo = descansoCard;
+  }
 
   document.getElementById('app').innerHTML = `<header>${tabs()}
     <div class="dias">${dias}</div>
@@ -698,19 +774,19 @@ async function render() {
       <div class="step"><button data-a="sem" data-v="-1" ${state.s <= 1 ? 'disabled' : ''}>‹</button><span>Semana ${state.s}/${mx}</span><button data-a="sem" data-v="1" ${state.s >= mx ? 'disabled' : ''}>›</button></div></div>
     <div class="bar"><i id="pb"></i></div>
     <div class="res"><span id="rt"></span><span>${statusBtn()}</span></div>
-  </header><main>${corpo}${cardio}</main>
-  <nav><div><button data-a="ant" ${state.lista || n === 0 || state.e === 0 ? 'disabled' : ''}>‹ Anterior</button>
+  </header><main>${corpo}</main>
+  <nav><div><button data-a="ant" ${state.lista || n === 0 || state.e === 0 ? 'disabled' : ''}>‹ ${state.e > 0 ? passoNome(state.e - 1) : 'Início'}</button>
   <button class="c" data-a="lista" ${n === 0 ? 'disabled' : ''}>${state.lista ? 'Voltar' : n === 0 ? 'Descanso' : '☰ ' + (state.e + 1) + '/' + n}</button>
-  <button class="p" data-a="prox" ${state.lista || n === 0 || state.e === n - 1 ? 'disabled' : ''}>Próximo ›</button></div></nav>`;
+  <button class="p" data-a="prox" ${state.lista || n === 0 || state.e === n - 1 ? 'disabled' : ''}>${state.e < n - 1 ? passoNome(state.e + 1) : 'Fim'} ›</button></div></nav>`;
 
   resumo();
 }
 
-async function cardEx() {
+async function cardEx(ei) {
   const dia = DIAS[state.d];
-  const [nome, grp, ns, mn, mxr] = catalogo[dia].defs[state.e];
-  const id = catalogo[dia].ids[state.e];
-  const u = await ultimo(state.d, state.s, state.e);
+  const [nome, grp, ns, mn, mxr] = catalogo[dia].defs[ei];
+  const id = catalogo[dia].ids[ei];
+  const u = await ultimo(state.d, state.s, ei);
 
   let ant = '<div class="ant">Sem registro anterior deste exercício.</div>';
   if (u) {
@@ -723,43 +799,55 @@ async function cardEx() {
     const a = u ? (u.r[i] || {}) : {};
     sets += `<div class="set ${ok(g) ? 'ok' : ''}" data-i="${i}"><div class="n">${i + 1}</div>
     <input data-k="c" inputmode="decimal" value="${esc(g.c)}" placeholder="${esc(a.c)}" aria-label="Carga série ${i + 1}">
-    <input data-k="r" inputmode="numeric" value="${esc(g.r)}" placeholder="${esc(a.r)}" aria-label="Repetições série ${i + 1}">
-    <input class="q" data-k="q" inputmode="numeric" value="${esc(g.q)}" placeholder="RIR" aria-label="RIR série ${i + 1}">
-    <button class="fal ${g.f ? 'on' : ''}" data-a="falha">Falha</button></div>`;
+    <input data-k="r" inputmode="numeric" value="${esc(g.r)}" placeholder="${esc(a.r)}" aria-label="Repetições série ${i + 1}"></div>`;
   }
 
   return `<div class="card"><span class="grp">${esc(grp)}</span><h1>${esc(nome)}</h1>
   <div class="meta">${ns} séries · meta ${mn}–${mxr} repetições</div>${ant}
-  <div class="hd"><span></span><span>Carga (kg)</span><span>Reps</span><span>RIR</span><span></span></div>
+  <div class="hd"><span></span><span>Carga (kg)</span><span>Reps</span></div>
   ${sets}
-  <textarea rows="2" data-k="nota" placeholder="Observações">${esc(notas[notaKey()])}</textarea>
+  <textarea rows="2" data-k="nota" placeholder="Observações">${esc(notas[notaKey(ei)] || '')}</textarea>
   <div class="acoes">${u ? '<button class="btn" data-a="repetir">Preencher com a semana anterior</button>' : ''}</div></div>`;
 }
 
-/* --- Cardio (per day, on the Treino screen) --- */
+/* --- Cardio steps (start/end of the day, chosen in the routine) --- */
 
-async function cardCardio() {
-  const data = iso(dataDe(state.s, state.d));
-  const lista = await getCardiosByDate(data);
+async function cardPassoCardio(m, pulados, cardiosDia) {
+  const slot = m === 'i' ? 'i' : 'f';
+  const dia = DIAS[state.d];
+  const cfg = cardioDoDia(rotina, dia, slot);
+  if (!cfg.ativo) return '';
+
+  const rotulo = slot === 'i' ? 'Cardio inicial' : 'Cardio final';
+
+  if (pulados[slot]) {
+    return `<div class="card sec" data-cbar="${slot}"><h2>${rotulo}</h2>
+      <div class="sub">Pulado neste dia</div>
+      <div class="acoes"><button class="btn" data-a="cmostar" data-m="${slot}">Mostrar</button></div>
+    </div>`;
+  }
+
+  const lista = cardiosDia.filter(x => (x.momento || 'f') === slot);
   const total = lista.reduce((a, x) => a + (Number(x.minutos) || 0), 0);
 
   const itens = lista.map(x => `<div class="li"><span class="n"><b>${esc(x.tipo)}</b><small>${f1(Number(x.minutos) || 0)} min</small></span>
     <button class="btn" style="width:40px;height:40px;flex:none" data-a="cremover" data-v="${x.id}" aria-label="Remover cardio">×</button></div>`).join('');
 
-  const tipos = TIPOS_CARDIO.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
+  const tipos = TIPOS_CARDIO.map(t => `<option value="${esc(t)}" ${cfg.tipo === t ? 'selected' : ''}>${esc(t)}</option>`).join('');
 
-  return `<div class="card sec" style="margin-top:14px"><h2>Cardio</h2>
-    <div class="sub">${fmt(dataDe(state.s, state.d))} · ${f1(total)} min neste dia</div>
-    ${itens || '<div class="meta">Nenhum cardio registrado neste dia.</div>'}
+  return `<div class="card sec" data-cbar="${slot}"><h2>${rotulo}</h2>
+    <div class="sub">${fmt(dataDe(state.s, state.d))} · ${f1(total)} min ${slot === 'i' ? 'antes' : 'depois'} dos exercícios</div>
+    ${itens}
     <div class="frm" style="margin-top:10px">
-      <div><label>Atividade</label><select class="sel" data-k="ctipo" id="cardioTipo" aria-label="Atividade">${tipos}<option value="__outro">Outro…</option></select></div>
-      <div><label>Tempo (min)</label><input inputmode="decimal" id="cardioMin" placeholder="ex.: 30" aria-label="Minutos de cardio"></div>
+      <div><label>Atividade</label><select class="sel" data-k="ctipo" data-m="${slot}" id="cardioTipo" aria-label="Atividade">${tipos}<option value="__outro">Outro…</option></select></div>
+      <div><label>Tempo (min)</label><input inputmode="decimal" id="cardioMin" value="${esc(cfg.min)}" placeholder="ex.: 30" aria-label="Minutos de cardio"></div>
     </div>
     <div id="cardioOutro" style="display:none">
       <label style="font-size:12px;color:var(--mut)">Qual atividade?</label>
       <input class="sel" id="cardioOutroNome" placeholder="ex.: Futebol" aria-label="Nome da atividade">
     </div>
-    <div class="acoes"><button class="btn p" data-a="cadicionar">Adicionar cardio</button></div>
+    <div class="acoes"><button class="btn p" data-a="cadicionar" data-m="${slot}">Adicionar cardio</button>
+      <button class="btn" data-a="cpular" data-m="${slot}">Pular</button></div>
   </div>`;
 }
 
@@ -1128,6 +1216,8 @@ async function telaRel() {
 
   const cardios = await getAllCardios();
   const minTotal = cardios.reduce((a, x) => a + (Number(x.minutos) || 0), 0);
+  const nPulos = Object.values(await todosPulados()).filter(p => p && (p.i || p.f)).length;
+  const pulosTxt = nPulos ? ` · ${nPulos} ${nPulos === 1 ? 'dia' : 'dias'} com cardio pulado` : '';
   const porSemana = Array.from({ length: semanas() }, () => 0);
   cardios.forEach(c => {
     const d = dataParaDate(c.data);
@@ -1143,9 +1233,9 @@ async function telaRel() {
     .map(c => `<tr><td>${brd(c.data)}</td><td style="text-align:left">${esc(c.tipo)}</td><td>${f1(Number(c.minutos) || 0)}</td></tr>`)
     .join('');
   const cardioCard = cardios.length
-    ? `<div class="card sec"><h2>Cardio</h2><div class="sub">${cardios.length} registros · ${Math.floor(minTotal / 60)}h ${Math.round(minTotal % 60)}min no total</div>${linhasCardio || '<div class="meta">Registros fora do período da rotina atual.</div>'}
+    ? `<div class="card sec"><h2>Cardio</h2><div class="sub">${cardios.length} registros · ${Math.floor(minTotal / 60)}h ${Math.round(minTotal % 60)}min no total${pulosTxt}</div>${linhasCardio || '<div class="meta">Registros fora do período da rotina atual.</div>'}
       <table class="tb" style="margin-top:10px"><tr><th>Dia</th><th>Atividade</th><th>Min</th></tr>${histCardio}</table></div>`
-    : `<div class="card sec"><h2>Cardio</h2><div class="sub">Nenhum cardio registrado ainda. Registre na tela Treino.</div></div>`;
+    : `<div class="card sec"><h2>Cardio</h2><div class="sub">Nenhum cardio registrado ainda. Registre nas barras da tela Treino.${pulosTxt}</div></div>`;
 
   const alimCards = await cardRelAlimentacao();
 
@@ -1235,10 +1325,26 @@ function cardDiaRotina(r, dia) {
 
   const titulo = t.t && t.t !== LONGO[i] ? `${LONGO[i]} · ${esc(t.t)}` : LONGO[i];
 
+  const cfgI = cardioDoDia(r, dia, 'i');
+  const cfgF = cardioDoDia(r, dia, 'f');
+  const tiposOpts = sel => TIPOS_CARDIO.map(t => `<option value="${esc(t)}" ${sel === t ? 'selected' : ''}>${esc(t)}</option>`).join('');
+  const slotCfg = (m, cfg) => cfg.ativo ? `
+    <div class="frm" style="margin-top:8px">
+      <div><label>Tipo (${m === 'i' ? 'início' : 'fim'})</label><select class="sel" data-k="rcardiotipo" data-d="${dia}" data-m="${m}">${tiposOpts(cfg.tipo)}</select></div>
+      <div><label>Minutos</label><input inputmode="numeric" data-k="rcardiomin" data-d="${dia}" data-m="${m}" value="${esc(cfg.min)}" placeholder="ex.: 30" aria-label="Minutos de cardio ${m === 'i' ? 'inicial' : 'final'} de ${LONGO[i]}"></div>
+    </div>` : '';
+  const cardioSec = `
+    <div class="acoes" style="margin-top:12px">
+      <button class="btn ${cfgI.ativo ? 'p' : ''}" data-a="rcardiotoggle" data-d="${dia}" data-m="i">Cardio início ${cfgI.ativo ? '✓' : ''}</button>
+      <button class="btn ${cfgF.ativo ? 'p' : ''}" data-a="rcardiotoggle" data-d="${dia}" data-m="f">Cardio fim ${cfgF.ativo ? '✓' : ''}</button>
+    </div>
+    ${slotCfg('i', cfgI)}${slotCfg('f', cfgF)}`;
+
   return `<div class="card sec"><h2>${titulo}</h2>
     <div class="sub">Séries e meta de repetições (${seriesDia} séries no dia)</div>
     <input class="sel" data-k="rnome" data-d="${dia}" value="${esc(t.t)}" placeholder="Nome do treino" style="margin-bottom:10px" aria-label="Nome do treino ${LONGO[i]}">
     ${linhas || '<div class="meta">Nenhum exercício neste dia.</div>'}
+    ${cardioSec}
     <div class="acoes"><select class="sel" data-k="radicionar" data-d="${dia}" aria-label="Adicionar exercício"><option value="">Adicionar exercício…</option>${opcoes}</select></div>
     <div class="frm" style="margin-top:8px">
       <div><label>Novo exercício</label><input data-k="rnovo" data-d="${dia}" placeholder="Nome"></div>
@@ -1274,7 +1380,7 @@ async function baixarBackup() {
  * @returns {boolean} true when the field belongs to the routine form
  */
 function campoRotina(k, el) {
-  const campos = ['rnome', 'rserie', 'rmin', 'rmax', 'rvalor', 'rinicio', 'rate'];
+  const campos = ['rnome', 'rserie', 'rmin', 'rmax', 'rvalor', 'rinicio', 'rate', 'rcardiotipo', 'rcardiomin'];
   if (!campos.includes(k)) return false;
 
   const r = rotinaRascunho;
@@ -1299,6 +1405,12 @@ function campoRotina(k, el) {
   }
   if (k === 'rnome') {
     if (r.treinos[dia]) r.treinos[dia].t = el.value;
+    return true;
+  }
+  if (k === 'rcardiotipo' || k === 'rcardiomin') {
+    const slot = garantirCardio(r, dia, el.dataset.m);
+    if (k === 'rcardiotipo') slot.tipo = el.value;
+    else slot.min = el.value.replace(',', '.');
     return true;
   }
 
@@ -1340,6 +1452,11 @@ document.addEventListener('change', async ev => {
       max: 12
     });
     await render();
+    return;
+  }
+
+  if (k === 'rcardiotipo') {
+    campoRotina(k, el);
     return;
   }
 
@@ -1437,7 +1554,9 @@ document.addEventListener('input', async ev => {
   }
 
   if (k === 'nota') {
-    notas[notaKey()] = el.value;
+    const ei = exAtual();
+    if (ei === null) return;
+    notas[notaKey(ei)] = el.value;
     const copia = notas;
     gravar(() => saveSetting('notas', copia));
     return;
@@ -1447,7 +1566,9 @@ document.addEventListener('input', async ev => {
   if (!set) return;
 
   const i = +set.dataset.i;
-  const id = idsAtuais()[state.e];
+  const ei = exAtual();
+  if (ei === null) return;
+  const id = idsAtuais()[ei];
   if (id === null || id === undefined) return;
 
   const g = gDe(id, i + 1);
@@ -1486,6 +1607,13 @@ document.addEventListener('click', async ev => {
   if (a === 'rdia') {
     const r = editarRotina();
     r.dias[b.dataset.d] = !r.dias[b.dataset.d];
+    await render();
+    return;
+  }
+
+  if (a === 'rcardiotoggle') {
+    const slot = garantirCardio(editarRotina(), b.dataset.d, b.dataset.m);
+    slot.ativo = !slot.ativo;
     await render();
     return;
   }
@@ -1549,18 +1677,37 @@ document.addEventListener('click', async ev => {
   }
 
   if (a === 'cadicionar') {
+    const m = b.dataset.m === 'i' ? 'i' : 'f';
     const sel = document.getElementById('cardioTipo');
     const outro = document.getElementById('cardioOutroNome');
     const tipo = sel && sel.value !== '__outro' ? sel.value : ((outro && outro.value) || '');
     const minutos = (document.getElementById('cardioMin') || {}).value || '';
     try {
-      await adicionarCardio({ data: iso(dataDe(state.s, state.d)), tipo, minutos });
+      await adicionarCardio({ data: iso(dataDe(state.s, state.d)), tipo, minutos, momento: m });
       await render();
       aviso('Cardio registrado ✓');
     } catch (err) {
       console.error('Erro ao registrar cardio:', err);
       aviso(err.message);
     }
+    return;
+  }
+
+  if (a === 'cpular') {
+    const m = b.dataset.m === 'i' ? 'i' : 'f';
+    await setPulado(iso(dataDe(state.s, state.d)), m, true);
+    const n = passos().length;
+    if (state.e < n - 1) state.e += 1;
+    await render();
+    scrollTo(0, 0);
+    aviso('Cardio pulado neste dia');
+    return;
+  }
+
+  if (a === 'cmostar') {
+    const m = b.dataset.m === 'i' ? 'i' : 'f';
+    await setPulado(iso(dataDe(state.s, state.d)), m, false);
+    await render();
     return;
   }
 
@@ -1648,24 +1795,20 @@ document.addEventListener('click', async ev => {
     state.d = v;
     state.s = Math.min(state.s, MAXS(v));
     await carregarLogDoDia();
-    state.e = primeiroAberto();
+    state.e = await primeiroPasso();
     state.lista = false;
     await render();
     scrollTo(0, 0);
   } else if (a === 'sem') {
     state.s += v;
     await carregarLogDoDia();
-    state.e = primeiroAberto();
+    state.e = await primeiroPasso();
     await render();
     scrollTo(0, 0);
   } else if (a === 'ant') {
-    state.e--;
-    await render();
-    scrollTo(0, 0);
+    await moverEx(-1);
   } else if (a === 'prox') {
-    state.e++;
-    await render();
-    scrollTo(0, 0);
+    await moverEx(1);
   } else if (a === 'lista') {
     state.lista = !state.lista;
     await render();
@@ -1675,24 +1818,16 @@ document.addEventListener('click', async ev => {
     state.lista = false;
     await render();
     scrollTo(0, 0);
-  } else if (a === 'falha') {
-    const set = b.closest('.set');
-    const i = +set.dataset.i;
-    const id = idsAtuais()[state.e];
-    if (id === null || id === undefined) return;
-
-    const g = gDe(id, i + 1);
-    g.f = !g.f;
-    b.classList.toggle('on', g.f);
-    salvarSerie(i + 1);
   } else if (a === 'repetir') {
-    const u = await ultimo(state.d, state.s, state.e);
+    const ei = exAtual();
+    if (ei === null) return;
+    const u = await ultimo(state.d, state.s, ei);
     if (!u) return;
 
-    const id = idsAtuais()[state.e];
+    const id = idsAtuais()[ei];
     if (id === null || id === undefined) return;
 
-    const ns = defsAtuais()[state.e][2];
+    const ns = defsAtuais()[ei][2];
     for (let i = 0; i < ns; i++) {
       const g = gDe(id, i + 1);
       const x = u.r[i] || {};
@@ -1714,6 +1849,52 @@ document.addEventListener('click', async ev => {
     await render();
     scrollTo(0, 0);
   }
+});
+
+/* --- Navigation between exercises (buttons, swipe, keyboard) --- */
+
+/**
+ * Move to the previous/next exercise of the day, when there is one.
+ * @param {number} delta - -1 previous, +1 next
+ * @returns {Promise<void>}
+ */
+async function moverEx(delta) {
+  if (state.tela !== 'treino' || state.lista) return;
+  const n = passos().length;
+  const novo = state.e + delta;
+  if (novo < 0 || novo >= n) return;
+  state.e = novo;
+  await render();
+  scrollTo(0, 0);
+}
+
+let navX = 0, navY = 0, navAlvo = null;
+
+document.addEventListener('touchstart', e => {
+  if (e.touches.length !== 1) { navAlvo = null; return; }
+  navX = e.touches[0].clientX;
+  navY = e.touches[0].clientY;
+  navAlvo = e.target;
+}, { passive: true });
+
+document.addEventListener('touchend', e => {
+  const alvo = navAlvo;
+  navAlvo = null;
+  if (!alvo || !e.changedTouches.length) return;
+
+  const dx = e.changedTouches[0].clientX - navX;
+  const dy = e.changedTouches[0].clientY - navY;
+  if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+  if (alvo.closest && alvo.closest('input,textarea,select')) return;
+
+  moverEx(dx < 0 ? 1 : -1);
+}, { passive: true });
+
+document.addEventListener('keydown', e => {
+  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+  const t = document.activeElement;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
+  moverEx(e.key === 'ArrowLeft' ? -1 : 1);
 });
 
 /* --- Start Application --- */

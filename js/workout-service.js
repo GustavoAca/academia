@@ -669,7 +669,7 @@ async function importData(backupData, overwrite = false) {
       stats.measurements++;
     }
     
-    // --- Cardio: upsert pela data + tipo (nunca duplica a mesma atividade) ---
+    // --- Cardio: upsert pela data + tipo + momento (início/fim) ---
     for (const card of backupData.cardios || []) {
       if (!card || !card.data || !card.tipo) { stats.ignorados++; continue; }
       const { id, createdAt, updatedAt, ...record } = card;
@@ -722,6 +722,10 @@ async function importData(backupData, overwrite = false) {
         stats.metaCalorias = 1;
       }
     }
+    if (backupData.cardioPulados && typeof backupData.cardioPulados === 'object') {
+      await saveSetting('cardioPulados', backupData.cardioPulados);
+      stats.cardioPulados = 1;
+    }
     
     // --- Rotina personalizada (quando veio no backup) ---
     if (backupData.rotina && typeof backupData.rotina === 'object' && backupData.rotina.dias && backupData.rotina.treinos) {
@@ -748,7 +752,7 @@ async function importData(backupData, overwrite = false) {
       
       if (treinoId === null || exercicioId === null) { stats.ignorados++; continue; }
       
-      const { id, createdAt, updatedAt, ...record } = exec;
+      const { id, createdAt, updatedAt, rir, falha, ...record } = exec;
       await upsertExecution({ ...record, treinoId, exercicioId });
       stats.executions++;
     }
