@@ -1484,15 +1484,47 @@ function calor(grade) {
 
 function linha(p) {
   if (p.length < 2) return '<div class="meta">Registre ao menos 2 valores desta medida para ver a evolução.</div>';
-  const W = 320, H = 110, pad = 28, ys = p.map(x => x[1]), lo = Math.min(...ys), hi = Math.max(...ys), sp = (hi - lo) || 1;
-  const X = i => pad + i * (W - pad - 8) / (p.length - 1), Y = y => 10 + (1 - (y - lo) / sp) * (H - 26);
-  return `<svg class="gr" viewBox="0 0 ${W} ${H + 8}"><line class="gl" x1="${pad}" x2="${W - 8}" y1="${Y(lo)}" y2="${Y(lo)}"/><line class="gl" x1="${pad}" x2="${W - 8}" y1="${Y(hi)}" y2="${Y(hi)}"/><text x="0" y="${Y(hi) + 3}">${f1(hi)}</text><text x="0" y="${Y(lo) + 3}">${f1(lo)}</text><polyline class="ln" points="${p.map((x, i) => X(i) + ',' + Y(x[1])).join(' ')}"/>` + p.map((x, i) => `<circle class="pt" cx="${X(i)}" cy="${Y(x[1])}" r="3"/>`).join('') + `<text x="${pad}" y="${H + 6}">${p[0][0]}</text><text x="${W - 8}" y="${H + 6}" text-anchor="end">${p[p.length - 1][0]}</text></svg>`;
+  const W = 320, H = 110, pad = 28, ys = p.map(x => x[1]), lo = Math.min(...ys), hi = Math.max(...ys), sp = (hi - lo) || 1, flat = lo === hi;
+  const X = i => pad + i * (W - pad - 8) / (p.length - 1), Y = y => flat ? 10 + (H - 26) / 2 : 10 + (1 - (y - lo) / sp) * (H - 26);
+  const grades = flat
+    ? `<line class="gl" x1="${pad}" x2="${W - 8}" y1="${Y(lo)}" y2="${Y(lo)}"/><text x="0" y="${Y(hi) + 3}">${f1(hi)}</text>`
+    : `<line class="gl" x1="${pad}" x2="${W - 8}" y1="${Y(lo)}" y2="${Y(lo)}"/><line class="gl" x1="${pad}" x2="${W - 8}" y1="${Y(hi)}" y2="${Y(hi)}"/><text x="0" y="${Y(hi) + 3}">${f1(hi)}</text><text x="0" y="${Y(lo) + 3}">${f1(lo)}</text>`;
+  return `<svg class="gr" viewBox="0 0 ${W} ${H + 8}">${grades}<polyline class="ln" points="${p.map((x, i) => X(i) + ',' + Y(x[1])).join(' ')}"/>` + p.map((x, i) => `<circle class="pt" cx="${X(i)}" cy="${Y(x[1])}" r="3"/>`).join('') + `<text x="${pad}" y="${H + 6}">${p[0][0]}</text><text x="${W - 8}" y="${H + 6}" text-anchor="end">${p[p.length - 1][0]}</text></svg>`;
 }
 
 function spark(v) {
   if (v.length < 2) return '';
   const lo = Math.min(...v), hi = Math.max(...v), sp = (hi - lo) || 1;
   return `<svg class="gr" viewBox="0 0 80 24"><polyline class="ln" style="stroke-width:2" points="${v.map((y, i) => (i * 76 / (v.length - 1) + 2) + ',' + (22 - (y - lo) / sp * 20)).join(' ')}"/></svg>`;
+}
+
+/**
+ * Load evolution chart for one exercise: one point per program week, scaled to
+ * that exercise's own range, with min/max labels and the last week highlighted.
+ * @param {Array<[string, number]>} p - [[weekLabel, load], ...] chronological
+ */
+function linhaCarga(p) {
+  if (p.length < 2) return '';
+  const W = 320, H = 80, pad = 30;
+  const ys = p.map(x => Number(x[1]) || 0);
+  const lo = Math.min(...ys), hi = Math.max(...ys), sp = (hi - lo) || 1, flat = lo === hi;
+  const X = i => pad + i * (W - pad - 16) / (p.length - 1);
+  const Y = y => flat ? 12 + (H - 30) / 2 : 12 + (1 - (y - lo) / sp) * (H - 30);
+  const pontos = p.map((x, i) => `${X(i).toFixed(1)},${Y(x[1]).toFixed(1)}`).join(' ');
+
+  let s = `<svg class="gr" viewBox="0 0 ${W} ${H}">`;
+  s += `<line class="gl" x1="${pad}" x2="${W - 16}" y1="${Y(hi)}" y2="${Y(hi)}"/>`;
+  if (!flat) s += `<line class="gl" x1="${pad}" x2="${W - 16}" y1="${Y(lo)}" y2="${Y(lo)}"/>`;
+  s += `<text x="0" y="${Y(hi) + 3}">${f1(hi)}</text>`;
+  if (!flat) s += `<text x="0" y="${Y(lo) + 3}">${f1(lo)}</text>`;
+  s += `<polyline class="ln" points="${pontos}"/>`;
+  s += p.map((x, i) => {
+    const ult = i === p.length - 1;
+    return `<circle class="pt${ult ? ' fim' : ''}" cx="${X(i).toFixed(1)}" cy="${Y(x[1]).toFixed(1)}" r="${ult ? 4 : 3}"/>`;
+  }).join('');
+  s += `<text x="${pad}" y="${H - 4}">${p[0][0]}</text>`;
+  s += `<text x="${W - 16}" y="${H - 4}" text-anchor="end">${p[p.length - 1][0]}</text>`;
+  return s + '</svg>';
 }
 
 /**
@@ -1593,7 +1625,7 @@ async function secTreino(desde) {
     const d = cs.length > 1 ? u - cs[0] : null;
     const pr = cs.length > 1 && u > Math.max(...cs.slice(0, -1));
     const travado = cs.length >= 4 && Math.max(...cs.slice(-3)) <= Math.max(...cs.slice(0, -3));
-    const html = `<div class="ex"><div><b>${esc(n)}${pr ? '<span class="pr">recorde</span>' : ''}</b><small>melhor série: ${f1(o.b)} kg × ${o.br}${d !== null ? ` · ${sg(d)} kg desde a semana ${ws[0]}` : ''}</small></div>${spark(cs)}</div>`;
+    const html = `<div class="ex g"><div><b>${esc(n)}${pr ? '<span class="pr">recorde</span>' : ''}</b><small>melhor série: ${f1(o.b)} kg × ${o.br} · última semana: ${f1(u)} kg${d !== null ? ` · ${sg(d)} kg desde a semana ${ws[0]}` : ''}</small></div>${linhaCarga(ws.map((w, i) => ['Sem ' + w, cs[i]]))}</div>`;
     return { n, o, u, travado, html };
   });
 
