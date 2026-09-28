@@ -79,9 +79,9 @@ import {
 
 /* --- Constants (same as exemplo.html) --- */
 
-const DIAS = ['seg', 'ter', 'qua', 'qui', 'sex'];
-const CURTO = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex'];
-const LONGO = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta'];
+const DIAS = ['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom'];
+const CURTO = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
+const LONGO = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
 
 /* The active routine replaces the old fixed PLANO/INI/MAXS constants. */
 let rotina = null;
@@ -113,7 +113,7 @@ const ok = x => !!x && x.c !== undefined && x.c !== '' && x.r !== undefined && x
 
 const state = {
   tela: 'treino', // 'treino' | 'rotina' | 'med' | 'alim' | 'rel'
-  d: 0,           // day index 0..4 (Seg..Sex)
+  d: 0,           // day index 0..6 (Seg..Dom)
   s: 1,           // program week 1..MAXS
   e: 0,           // exercise index within the day
   lista: false,   // list view instead of the set card
@@ -220,7 +220,7 @@ async function seedFromPlano() {
   const days = new Set(workouts.map(w => w.diaSemana));
 
   for (const dia of DIAS) {
-    if (days.has(dia)) continue;
+    if (!PLANO[dia] || days.has(dia)) continue;
     await saveWorkout({
       nome: PLANO[dia].t,
       diaSemana: dia,
@@ -296,7 +296,7 @@ function exAtual() {
 // - notas keys: "dia|semana|indiceExercicio|n" -> texto
 // - med keys: "YYYY-MM-DD" -> { peso, gord, ..., abd, ..., pesc }
 const OLD_STORE_KEY = 'treino2026';
-const OLD_DIAS = ['seg', 'ter', 'qua', 'qui', 'sex'];
+const OLD_DIAS = ['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom'];
 const OLD_INI = new Date(2026, 8, 14); // Program start: 14/09/2026
 const MIGRATION_FLAG = 'migrated_localstorage_v2';
 
@@ -534,11 +534,9 @@ function posicaoInicial() {
   if (diff < 0) {
     s = 1;
     state.d = 0;
-  } else if (dw === 0 || dw === 6) {
-    s += 1;
-    state.d = 0;
   } else {
-    state.d = dw - 1;
+    // 0=Dom..6=Sáb -> index 0..6 starting on Monday.
+    state.d = (dw + 6) % 7;
   }
 
   state.s = Math.min(semanas(), Math.max(1, s));
@@ -1225,7 +1223,7 @@ async function telaAlimentacao() {
       : kp(f1(-falta) + ' kcal', 'acima da meta');
 
   const maxRef = Math.max(1, ...resumo.porRefeicao.map(r => r.total));
-  const porRef = resumo.porRefeicao.map(r => `<div class="hbar" style="grid-template-columns:96px 1fr 68px">
+  const porRef = resumo.porRefeicao.map(r => `<div class="hbar">
     <span>${esc(r.nome)}</span><span><i style="width:${(r.total / maxRef * 100).toFixed(0)}%;background:${r.total ? 'var(--ac)' : 'var(--line)'}"></i></span>
     <span style="white-space:nowrap">${f1(r.total)} kcal</span></div>`).join('');
 
@@ -1308,11 +1306,11 @@ async function registros() {
     const diff = Math.floor((new Date(date.getFullYear(), date.getMonth(), date.getDate()) - iniDate()) / 864e5);
     const s = Math.max(1, Math.floor(diff / 7) + 1);
     const dow = date.getDay();
-    if (dow < 1 || dow > 5) continue;
+    if (dow < 0 || dow > 6) continue;
 
     const c = num(x.carga) || 0;
     const rp = num(x.repeticoes) || 0;
-    r.push({ d: dow - 1, s, nome: ex.nome, grp: ex.grupoMuscular, c, r: rp, v: c * rp });
+    r.push({ d: (dow + 6) % 7, s, nome: ex.nome, grp: ex.grupoMuscular, c, r: rp, v: c * rp });
   }
 
   return r;
@@ -1391,7 +1389,7 @@ async function cardRelAlimentacao() {
     ? registrados.reduce((a, h) => a + (h.total - meta), 0) / registrados.length
     : null;
 
-  const linhasDist = dist.filter(d => d.total > 0).map(d => `<div class="hbar" style="grid-template-columns:96px 1fr 92px">
+  const linhasDist = dist.filter(d => d.total > 0).map(d => `<div class="hbar">
     <span>${esc(d.nome)}</span><span><i style="width:${d.pct}%"></i></span>
     <span style="white-space:nowrap">${d.pct}% · ${f1(d.total)} kcal</span></div>`).join('');
 

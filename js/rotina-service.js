@@ -13,7 +13,7 @@
  *   origem: 'plano' | 'personalizada',
  *   nome, inicio: 'YYYY-MM-DD' (segunda-feira da semana 1),
  *   duracao: { tipo: 'semanas' | 'meses' | 'ate', valor, ate },
- *   dias: { seg, ter, qua, qui, sex },
+ *   dias: { seg, ter, qua, qui, sex, sab, dom },
  *   treinos: { seg: { t: 'Nome', ex: [{ nome, grupo, series, min, max }],
  *                     cardio: { i: { ativo, tipo, min }, f: { ativo, tipo, min } } }, ... }
  * }
@@ -36,7 +36,7 @@ import {
 import { PLANO } from './plano.js';
 
 const CHAVE_ROTINA = 'rotina';
-const DIAS = ['seg', 'ter', 'qua', 'qui', 'sex'];
+const DIAS = ['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom'];
 const INICIO_PADRAO = '2026-09-14';
 
 /**
@@ -48,11 +48,13 @@ function rotinaPadrao() {
   const treinos = {};
 
   for (const dia of DIAS) {
-    dias[dia] = true;
-    treinos[dia] = {
-      t: PLANO[dia].t,
-      ex: PLANO[dia].ex.map(x => ({ nome: x[0], grupo: x[1], series: x[2], min: x[3], max: x[4] }))
-    };
+    const plano = PLANO[dia];
+    // Sábado e domingo não têm programa base: ficam livres por padrão, mas o
+    // usuário pode marcá-los na rotina (cardio, caminhada ou treino).
+    dias[dia] = !!plano;
+    treinos[dia] = plano
+      ? { t: plano.t, ex: plano.ex.map(x => ({ nome: x[0], grupo: x[1], series: x[2], min: x[3], max: x[4] })) }
+      : { t: '', ex: [] };
   }
 
   return {
@@ -134,13 +136,32 @@ function migrarCardio(r) {
 }
 
 /**
+ * Make sure a routine has every day of the week (older routines were saved
+ * with only Monday to Friday). Missing days start free and unnamed; nothing
+ * is written to the settings store here.
+ * @param {Object} r - routine (mutated in place)
+ * @returns {Object}
+ */
+function completarDias(r) {
+  if (!r || typeof r !== 'object') return r;
+  if (!r.dias || typeof r.dias !== 'object') r.dias = {};
+  if (!r.treinos || typeof r.treinos !== 'object') r.treinos = {};
+
+  for (const dia of DIAS) {
+    if (r.dias[dia] === undefined) r.dias[dia] = false;
+    if (!r.treinos[dia] || typeof r.treinos[dia] !== 'object') r.treinos[dia] = { t: '', ex: [] };
+  }
+  return r;
+}
+
+/**
  * Get the active routine (falls back to the PLANO based one).
  * @returns {Promise<Object>}
  */
 async function getRotina() {
   if (cache) return cache;
   const salva = await getSetting(CHAVE_ROTINA);
-  cache = migrarCardio(salva && salva.dias && salva.treinos ? salva : rotinaPadrao());
+  cache = completarDias(migrarCardio(salva && salva.dias && salva.treinos ? salva : rotinaPadrao()));
   return cache;
 }
 
@@ -214,7 +235,7 @@ function normalizar(r) {
     out.dias[dia] = !!(r.dias && r.dias[dia]);
     const t = r.treinos && r.treinos[dia];
     out.treinos[dia] = {
-      t: String((t && t.t) || '').trim() || 'Treino',
+      t: String((t && t.t) || '').trim(),
       ex: ((t && t.ex) || []).map(ex => ({
         nome: String(ex.nome || '').trim(),
         grupo: String(ex.grupo || 'Outros').trim() || 'Outros',
@@ -325,7 +346,7 @@ function defsDoDia(r, dia) {
 
 function nomeDoDia(r, dia) {
   const t = r && r.treinos && r.treinos[dia];
-  return (t && t.t) || 'Treino';
+  return (t && t.t) || '';
 }
 
 /* --- Sync routine -> catalog (exercises, workouts and their links) --- */
@@ -351,7 +372,7 @@ async function sincronizarCatalogo(r) {
 
     let workout = porDia.get(dia);
     if (!workout) {
-      const id = await saveWorkout({ nome: t.t, diaSemana: dia, ordem: 1, ativo: true });
+      const id = await saveWorkout({ nome: t.t || 'Treino', diaSemana: dia, ordem: 1, ativo: true });
       workout = { id, diaSemana: dia, nome: t.t };
       porDia.set(dia, workout);
     }

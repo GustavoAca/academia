@@ -71,7 +71,7 @@ async function initializeWorkoutsFromPlano(plano) {
   const existing = await getAllWorkouts();
   
   if (existing.length === 0) {
-    const days = ['seg', 'ter', 'qua', 'qui', 'sex'];
+    const days = ['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom'];
     
     for (const day of days) {
       if (plano[day]) {
@@ -127,10 +127,9 @@ async function initializeWorkoutExercisesFromPlano(plano) {
  * @returns {Promise<Object|null>}
  */
 async function getTodaysWorkout(currentDay) {
-  // Map JavaScript day (0-6) to our days (1-5 for seg-sex)
+  // Map JavaScript day (0-6) to our day codes.
   // JS: 0=Dom, 1=Seg, 2=Ter, 3=Qua, 4=Qui, 5=Sex, 6=Sáb
-  // We want: 1=Seg, 2=Ter, 3=Qua, 4=Qui, 5=Sex
-  const dayMap = [null, 'seg', 'ter', 'qua', 'qui', 'sex'];
+  const dayMap = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'];
   const dayKey = dayMap[currentDay];
   
   if (!dayKey) return null;

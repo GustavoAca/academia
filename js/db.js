@@ -270,7 +270,7 @@ async function saveWorkout(workout) {
 
 /**
  * Get all workouts, optionally filtered by day.
- * @param {string} [diaSemana] - Filter by day (seg, ter, qua, qui, sex)
+ * @param {string} [diaSemana] - Filter by day (seg, ter, qua, qui, sex, sab, dom)
  * @returns {Promise<Array>}
  */
 async function getAllWorkouts(diaSemana = null) {
