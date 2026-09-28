@@ -57,6 +57,9 @@ nav .c{padding:0 16px;font-size:15px}
 svg.gr{width:100%;height:auto;display:block}
 .gr text{fill:var(--mut);font-size:9px;font-family:inherit}
 .gr .b{fill:var(--acs)}.gr .b.at{fill:var(--ac)}.gr .ln{fill:none;stroke:var(--ac);stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round}.gr .pt{fill:var(--ac)}.gr .gl{stroke:var(--line);stroke-width:1}
+.gr .gl.meta{stroke:var(--warn)}
+.gr .pl{fill:var(--line)}
+.gr .s0{fill:var(--ac)}.gr .s1{fill:var(--ok)}.gr .s2{fill:var(--warn)}.gr .s3{fill:#7c5cd6}.gr .s4{fill:#0f9ba8}.gr .s5{fill:#c0529b}
 .tb{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}.tb td,.tb th{padding:8px 4px;border-bottom:1px solid var(--line);text-align:right}.tb th{color:var(--mut);font-weight:400;font-size:12px}.tb td:first-child,.tb th:first-child{text-align:left}
 .pr{font-size:11px;background:var(--oks);color:var(--ok);padding:1px 7px;border-radius:9px;margin-left:6px;font-weight:700}
 .ex{display:grid;grid-template-columns:1fr 84px;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
@@ -67,6 +70,45 @@ svg.gr{width:100%;height:auto;display:block}
 .frm input:focus,.sel:focus{outline:none;border-color:var(--ac);box-shadow:0 0 0 3px var(--acs)}
 .hbar{display:grid;grid-template-columns:minmax(56px,96px) minmax(0,1fr) auto;gap:8px;align-items:center;font-size:13px;margin:6px 0}
 .hbar i{display:block;height:10px;border-radius:6px;background:var(--ac)}.hbar span{min-width:0}.hbar span:last-child{text-align:right;color:var(--mut)}
+
+/* --- Relatório: navegação por secções + filtro de período global --- */
+.relnav{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.relnav .reltabs{flex:1 1 210px;min-width:0;margin-bottom:0}
+.relnav .sel{flex:1 1 130px;width:auto;min-width:130px;height:42px;font-size:15px;text-align:center;padding:0 8px}
+
+/* --- Relatório: legenda dos gráficos --- */
+.legenda{display:flex;flex-wrap:wrap;gap:8px 14px;margin-top:10px}
+.legenda span{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--mut);min-width:0}
+.legenda i{display:inline-block;width:12px;height:12px;border-radius:3px;background:var(--acs);flex:none}
+.legenda i.pl{background:var(--line)}
+.legenda i.at{background:var(--ac)}
+.legenda i.cv{background:var(--bg);border:1px solid var(--line)}
+.legenda i.cx{background:transparent;border:1px dashed var(--line)}
+.legenda i.c1{background:var(--acs);border:1px solid var(--acs)}
+.legenda i.c2{background:var(--ac);opacity:.55}
+.legenda i.c3{background:var(--ac);border:1px solid var(--ac)}
+.legenda i.gmeta,.legenda i.gmed,.legenda i.glin{width:16px;height:0;border-radius:0;background:none}
+.legenda i.gmeta{border-top:2px dashed var(--warn)}
+.legenda i.gmed{border-top:2px dashed var(--mut)}
+.legenda i.glin{border-top:2px solid var(--ac)}
+.legenda i.s0{background:var(--ac)}.legenda i.s1{background:var(--ok)}.legenda i.s2{background:var(--warn)}
+.legenda i.s3{background:#7c5cd6}.legenda i.s4{background:#0f9ba8}.legenda i.s5{background:#c0529b}
+
+/* --- Relatório: mapa de calor dos dias treinados --- */
+.calor{display:flex;flex-direction:column;gap:4px}
+.calor-l{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.calor-l span{font-size:10px;color:var(--mut);text-align:center;line-height:1}
+.calor-l i{display:block;aspect-ratio:1;min-height:24px;border-radius:6px;background:var(--bg);border:1px solid var(--line)}
+.calor-l i.cv{background:var(--bg);border-color:var(--line);opacity:.55}
+.calor-l i.cx{background:transparent;border-style:dashed;opacity:.5}
+.calor-l i.c1{background:var(--acs);border-color:transparent}
+.calor-l i.c2{background:var(--ac);border-color:transparent;opacity:.55}
+.calor-l i.c3{background:var(--ac);border-color:transparent}
+
+/* --- Relatório: mini gráfico dentro da tabela de medidas --- */
+.med{display:flex;align-items:center;gap:8px;justify-content:space-between}
+.med span{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis}
+.med svg{width:46px;flex:none}
 
 /* Filhos de grelha/flex encolhem em vez de empurrar o card para fora do ecrã */
 .hd>*,.set>*,.frm>*,.ex>*,.kpis>*,.tabs>*{min-width:0}

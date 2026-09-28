@@ -520,6 +520,40 @@ async function treinoVsDescanso(dias, ate) {
   return { treino: grupo(true), descanso: grupo(false) };
 }
 
+/**
+ * Calories per day split by meal (zero-filled, chronological).
+ * @param {number} dias
+ * @param {string} ate - last date in YYYY-MM-DD
+ * @returns {Promise<{datas: string[], refeicoes: Array<{id, nome, valores: number[]}>}>}
+ */
+async function historicoPorRefeicao(dias, ate) {
+  const datas = datasDoPeriodo(dias, ate);
+  const inicio = datas[0];
+  const [refeicoes, itens] = await Promise.all([getRefeicoes(), getAllFoodEntries()]);
+  const idx = new Map(datas.map((d, i) => [d, i]));
+  const pos = new Map(refeicoes.map((r, i) => [r.id, i]));
+  const out = refeicoes.map(r => ({ id: r.id, nome: r.nome, valores: datas.map(() => 0) }));
+
+  itens.forEach(i => {
+    const di = idx.get(i.data);
+    const ri = pos.get(i.refeicaoId);
+    if (di === undefined || ri === undefined || i.data < inicio) return;
+    out[ri].valores[di] += Number(i.calorias) || 0;
+  });
+
+  return { datas, refeicoes: out };
+}
+
+/**
+ * Earliest date with a food record (null when there is none).
+ * @returns {Promise<string|null>}
+ */
+async function primeiraData() {
+  const itens = await getAllFoodEntries();
+  if (!itens.length) return null;
+  return itens.reduce((m, i) => (i.data < m ? i.data : m), itens[0].data);
+}
+
 export {
   REFEICOES_PADRAO,
   getRefeicoes,
@@ -542,5 +576,7 @@ export {
   historicoCalorias,
   distribuicaoRefeicao,
   alimentosFrequentes,
-  treinoVsDescanso
+  treinoVsDescanso,
+  historicoPorRefeicao,
+  primeiraData
 };

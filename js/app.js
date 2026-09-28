@@ -74,7 +74,9 @@ import {
   historicoCalorias,
   distribuicaoRefeicao,
   alimentosFrequentes,
-  treinoVsDescanso
+  treinoVsDescanso,
+  historicoPorRefeicao,
+  primeiraData
 } from './food-service.js';
 
 /* --- Constants (same as exemplo.html) --- */
@@ -121,7 +123,8 @@ const state = {
   alim: hojeISO(),// date selected in the Alimentação screen
   alimRef: null,   // meal selected in the Alimentação screen (null = use the time-based suggestion)
   m: 'peso',      // metric selected in the report chart
-  p: 30,          // period (days) of the food reports
+  p: 30,          // period (days) of the reports; 0 = all
+  relSec: 'treino', // report section: 'treino' | 'corpo' | 'alim'
   alimEdit: null,   // id of the day's item being edited (Alimentação screen)
   alimEditRef: null // kcal per 100 g of the item being edited
 };
@@ -132,6 +135,7 @@ let notas = {};     // 'dia|semana|indiceExercicio' -> texto
 let logAtual = {};  // 'exercicioId|serie' -> { c, r }
 let medDraft = {};  // measurement record being edited for state.md
 let fila = Promise.resolve();
+let filaRender = Promise.resolve(); // serializes renders so two in-flight renders can never interleave
 
 /* --- Write queue (serializes IndexedDB writes) --- */
 
@@ -700,7 +704,12 @@ function statusBtn() {
   return `<button data-a="backup" style="all:unset;cursor:pointer" title="Baixar backup JSON"><i class="dot"></i><u>salvo no aparelho</u></button>`;
 }
 
-async function render() {
+function render() {
+  filaRender = filaRender.then(executarRender, executarRender);
+  return filaRender;
+}
+
+async function executarRender() {
   await aguardarGravacoes();
 
   if (state.tela !== 'treino') return renderOutra();
@@ -1290,7 +1299,7 @@ async function telaAlimentacao() {
   </div>`;
 }
 
-async function registros() {
+async function registros(desde) {
   const execs = await getAllExecutions();
   const r = [];
 
@@ -1302,6 +1311,7 @@ async function registros() {
     const data = String(x.data).slice(0, 10);
     const date = new Date(`${data}T00:00:00`);
     if (isNaN(date.getTime())) continue;
+    if (desde && data < desde) continue;
 
     const diff = Math.floor((new Date(date.getFullYear(), date.getMonth(), date.getDate()) - iniDate()) / 864e5);
     const s = Math.max(1, Math.floor(diff / 7) + 1);
@@ -1310,18 +1320,166 @@ async function registros() {
 
     const c = num(x.carga) || 0;
     const rp = num(x.repeticoes) || 0;
-    r.push({ d: (dow + 6) % 7, s, nome: ex.nome, grp: ex.grupoMuscular, c, r: rp, v: c * rp });
+    r.push({ d: (dow + 6) % 7, s, data, nome: ex.nome, grp: ex.grupoMuscular, c, r: rp, v: c * rp });
   }
 
   return r;
 }
 
-function barras(v, at) {
+/* --- Report window (global period filter) --- */
+
+/** Window used by the report screen: { dias, desde }. desde null = all time. */
+function janelaRel() {
+  if (!state.p) return { dias: 0, desde: null };
+  const ini = new Date();
+  ini.setDate(ini.getDate() - (state.p - 1));
+  return { dias: state.p, desde: iso(ini) };
+}
+
+/** Days inside the report window (1 when filtering all time since the program start). */
+function diasJanela(desde) {
+  const ini = dataParaDate(desde || iso(iniDate()));
+  const fim = dataParaDate(hojeISO());
+  return Math.max(1, Math.round((fim - ini) / 864e5) + 1);
+}
+
+/** Planned sets inside the same window used by the report filter. */
+function planoJanela(desde) {
+  if (!desde) {
+    let total = 0;
+    DIAS.forEach((k, d) => { total += defsDoDia(rotina, k).reduce((a, x) => a + Number(x.series || 0), 0) * MAXS(d); });
+    return total;
+  }
+
+  const hoje = hojeISO();
+  let total = 0;
+  for (let s = 1; s <= semanas(); s++) {
+    DIAS.forEach((k, d) => {
+      if (s > MAXS(d)) return;
+      const data = iso(dataDe(s, d));
+      if (data < desde || data > hoje) return;
+      total += defsDoDia(rotina, k).reduce((a, x) => a + Number(x.series || 0), 0);
+    });
+  }
+  return total;
+}
+
+/** Program weeks touched by the window (label values for the weekly charts). */
+function semanasJanela(desde) {
+  if (!desde) return Array.from({ length: semanas() }, (_, i) => i + 1);
+  const hoje = hojeISO();
+  const out = [];
+  for (let s = 1; s <= semanas(); s++) {
+    if (iso(dataDe(s, 6)) < desde) continue;
+    if (iso(dataDe(s, 0)) > hoje) continue;
+    out.push(s);
+  }
+  return out.length ? out : [1];
+}
+
+/** Longest run of consecutive days with training inside the window. */
+function melhorSequencia(treinados, desde) {
+  const ini = dataParaDate(desde);
+  const fim = dataParaDate(hojeISO());
+  let melhor = 0, atual = 0;
+  for (const d = new Date(ini); d <= fim; d.setDate(d.getDate() + 1)) {
+    if (treinados.has(iso(d))) { atual++; if (atual > melhor) melhor = atual; }
+    else atual = 0;
+  }
+  return melhor;
+}
+
+/** Latest load records (new best set) per exercise, most recent first. */
+function recordes(R) {
+  const porEx = {};
+  R.forEach(x => { (porEx[x.nome] = porEx[x.nome] || []).push(x); });
+
+  const out = [];
+  Object.entries(porEx).forEach(([nome, lista]) => {
+    const porData = {};
+    lista.forEach(x => { porData[x.data] = Math.max(porData[x.data] || 0, x.c); });
+    let melhor = null;
+    Object.keys(porData).sort().forEach(data => {
+      if (melhor === null) { melhor = porData[data]; return; }
+      if (porData[data] > melhor) { melhor = porData[data]; out.push({ data, nome, c: porData[data] }); }
+    });
+  });
+
+  return out.sort((a, b) => b.data.localeCompare(a.data)).slice(0, 5);
+}
+
+function barras(v, at, unidade = 'kg', rotulos = null) {
+  if (!v.length) return '';
   const W = 320, H = 110, m = Math.max(...v, 1), bw = W / v.length;
-  return `<svg class="gr" viewBox="0 0 ${W} ${H + 16}"><text x="0" y="8">${Math.round(m).toLocaleString('pt-BR')} kg</text>` + v.map((y, i) => {
+  const lab = rotulos || v.map((_, i) => i + 1);
+  return `<svg class="gr" viewBox="0 0 ${W} ${H + 16}"><text x="0" y="8">${Math.round(m).toLocaleString('pt-BR')} ${unidade}</text>` + v.map((y, i) => {
     const h = y / m * (H - 16);
-    return `<rect class="b${i + 1 === at ? ' at' : ''}" x="${i * bw + 2}" y="${H - h}" width="${bw - 4}" height="${Math.max(h, 2)}" rx="3"/><text x="${i * bw + bw / 2}" y="${H + 12}" text-anchor="middle">${i + 1}</text>`;
+    return `<rect class="b${i + 1 === at ? ' at' : ''}" x="${i * bw + 2}" y="${H - h}" width="${bw - 4}" height="${Math.max(h, 2)}" rx="3"/><text x="${i * bw + bw / 2}" y="${H + 12}" text-anchor="middle">${lab[i]}</text>`;
   }).join('') + '</svg>';
+}
+
+/** Weekly bars with the planned volume as a light background bar. */
+function barras2(feitas, planejadas, rotulos = null) {
+  if (!feitas.length) return '';
+  const W = 320, H = 110, m = Math.max(...feitas, ...planejadas, 1), bw = W / feitas.length;
+  const lab = rotulos || feitas.map((_, i) => i + 1);
+  let s = `<svg class="gr" viewBox="0 0 ${W} ${H + 16}"><text x="0" y="8">${Math.round(m).toLocaleString('pt-BR')} séries</text>`;
+  feitas.forEach((v, i) => {
+    const hp = planejadas[i] / m * (H - 16);
+    const hf = v / m * (H - 16);
+    const x = i * bw + 3;
+    s += `<rect class="pl" x="${x}" y="${H - hp}" width="${Math.max(bw - 6, 1)}" height="${Math.max(hp, 2)}" rx="3"/>`;
+    if (v > 0) s += `<rect class="b at" x="${x}" y="${H - hf}" width="${Math.max(bw - 6, 1)}" height="${Math.max(hf, 2)}" rx="3"/>`;
+    s += `<text x="${i * bw + bw / 2}" y="${H + 12}" text-anchor="middle">${lab[i]}</text>`;
+  });
+  return s + '</svg>';
+}
+
+/**
+ * Stacked bars: one column per day, one segment per meal.
+ * @param {string[]} datas
+ * @param {Array<{nome: string, valores: number[]}>} series - aligned with datas
+ */
+function empilhadas(datas, series) {
+  if (!datas.length) return '';
+  const W = 320, H = 110, bw = W / datas.length;
+  const tot = datas.map((_, i) => series.reduce((a, s) => a + (Number(s.valores[i]) || 0), 0));
+  const m = Math.max(...tot, 1);
+  const passo = Math.max(1, Math.ceil(datas.length / 7));
+  let s = `<svg class="gr" viewBox="0 0 ${W} ${H + 16}"><text x="0" y="8">${Math.round(m).toLocaleString('pt-BR')} kcal</text>`;
+  datas.forEach((d, i) => {
+    let acc = 0;
+    series.forEach((sr, si) => {
+      const v = Number(sr.valores[i]) || 0;
+      if (v <= 0) return;
+      const h = v / m * (H - 16);
+      acc += h;
+      s += `<rect class="s${si % 6}" x="${i * bw + 1}" y="${H - acc}" width="${Math.max(bw - 2, 1)}" height="${h}"/>`;
+    });
+    if (i % passo === 0) s += `<text x="${i * bw + bw / 2}" y="${H + 12}" text-anchor="middle">${brd(d)}</text>`;
+  });
+  return s + '</svg>';
+}
+
+/**
+ * Heat map of training days: rows are program weeks, columns are Monday..Sunday.
+ * @param {Array<Array<{data: string, vol: number, treinou: boolean}|null>>} grade
+ */
+function calor(grade) {
+  const rot = ['S', 'T', 'Q', 'Q', 'S', 'S', 'D'];
+  const usados = grade.flat().filter(c => c && c.treinou).map(c => c.vol);
+  const max = Math.max(1, ...usados);
+  const cel = c => {
+    if (!c) return '<i class="cx" title="fora do período"></i>';
+    if (!c.treinou) return `<i class="cv" title="${brd(c.data)}"></i>`;
+    const n = c.vol > 0 ? Math.min(3, Math.max(1, Math.ceil(c.vol / max * 3))) : 1;
+    const kg = Math.round(c.vol).toLocaleString('pt-BR');
+    return `<i class="c${n}" title="${brd(c.data)} · ${kg} kg"></i>`;
+  };
+  return `<div class="calor">
+    <div class="calor-l">${rot.map(d => `<span>${d}</span>`).join('')}</div>
+    ${grade.map(w => `<div class="calor-l">${w.map(cel).join('')}</div>`).join('')}
+  </div>`;
 }
 
 function linha(p) {
@@ -1337,18 +1495,28 @@ function spark(v) {
   return `<svg class="gr" viewBox="0 0 80 24"><polyline class="ln" style="stroke-width:2" points="${v.map((y, i) => (i * 76 / (v.length - 1) + 2) + ',' + (22 - (y - lo) / sp * 20)).join(' ')}"/></svg>`;
 }
 
-function barrasData(pts, media) {
+/**
+ * Daily bars with optional goal line, average line and 7-day moving average.
+ * @param {Array<{data: string, v: number}>} pts
+ * @param {number|{media?: number, meta?: number, mm7?: number[]}} opto
+ */
+function barrasData(pts, opto) {
   if (!pts.length) return '';
+  const o = typeof opto === 'number' ? { media: opto } : (opto || {});
   const W = 320, H = 110, bw = W / pts.length;
   const vals = pts.map(p => Number(p.v) || 0);
-  const m = Math.max(...vals, 1);
+  const mm7 = Array.isArray(o.mm7) && o.mm7.length === pts.length ? o.mm7 : null;
+  const m = Math.max(...vals, o.meta || 0, o.media || 0, ...(mm7 || []), 1);
   const passo = Math.max(1, Math.ceil(pts.length / 7));
   let s = `<svg class="gr" viewBox="0 0 ${W} ${H + 16}"><text x="0" y="8">${Math.round(m).toLocaleString('pt-BR')} kcal</text>`;
 
-  if (media > 0) {
-    const y = H - media / m * (H - 16);
-    s += `<line class="gl" x1="0" x2="${W}" y1="${y}" y2="${y}" stroke-dasharray="4 3"/><text x="${W}" y="${y - 3}" text-anchor="end">média ${Math.round(media).toLocaleString('pt-BR')}</text>`;
-  }
+  const linhaGuia = (valor, cls, txt) => {
+    const y = H - valor / m * (H - 16);
+    return `<line class="${cls}" x1="0" x2="${W}" y1="${y}" y2="${y}" stroke-dasharray="4 3"/><text x="${W}" y="${y - 3}" text-anchor="end">${txt}</text>`;
+  };
+
+  if (o.meta > 0) s += linhaGuia(o.meta, 'gl meta', 'meta ' + Math.round(o.meta).toLocaleString('pt-BR'));
+  else if (o.media > 0) s += linhaGuia(o.media, 'gl', 'média ' + Math.round(o.media).toLocaleString('pt-BR'));
 
   pts.forEach((p, i) => {
     const h = vals[i] / m * (H - 16);
@@ -1358,83 +1526,58 @@ function barrasData(pts, media) {
     }
   });
 
+  if (mm7) {
+    const passoX = pts.length > 1 ? W / pts.length : W;
+    const pontos = mm7.map((v, i) => (i * passoX + passoX / 2) + ',' + (H - v / m * (H - 16))).join(' ');
+    s += `<polyline class="ln" points="${pontos}"/>`;
+  }
+
   return s + '</svg>';
 }
 
-async function cardRelAlimentacao() {
-  const dias = state.p;
-  const ate = hojeISO();
-  const kp = (b, s) => `<div class="kpi"><b>${b}</b><small>${s}</small></div>`;
-  const periodo = `<select class="sel" data-k="alimperiodo" aria-label="Período dos relatórios de alimentação" style="margin-bottom:10px">
-    ${[7, 30, 90].map(d => `<option value="${d}" ${d === dias ? 'selected' : ''}>Últimos ${d} dias</option>`).join('')}</select>`;
-
-  const [hist, dist, freq, vst, meta] = await Promise.all([
-    historicoCalorias(dias, ate),
-    distribuicaoRefeicao(dias, ate),
-    alimentosFrequentes(dias, ate),
-    treinoVsDescanso(dias, ate),
-    getMeta()
-  ]);
-
-  if (!freq.length) {
-    return `<div class="card sec"><h2>Alimentação</h2><div class="sub">Consumo de calorias por dia, por refeição e por alimento.</div>${periodo}
-      <div class="meta">Nenhum registro de alimentação no período. Registre na aba Alimentação.</div></div>`;
-  }
-
-  const registrados = hist.filter(h => h.total > 0);
-  const total = hist.reduce((a, h) => a + h.total, 0);
-  const media = total / registrados.length;
-  const maior = Math.max(...hist.map(h => h.total));
-  const desvio = meta !== null && registrados.length
-    ? registrados.reduce((a, h) => a + (h.total - meta), 0) / registrados.length
-    : null;
-
-  const linhasDist = dist.filter(d => d.total > 0).map(d => `<div class="hbar">
-    <span>${esc(d.nome)}</span><span><i style="width:${d.pct}%"></i></span>
-    <span style="white-space:nowrap">${d.pct}% · ${f1(d.total)} kcal</span></div>`).join('');
-
-  const linhasFreq = freq.slice(0, 12).map(f => `<tr><td>${esc(f.nome)}</td><td>${f.vezes}</td><td>${f1(f.media)}</td><td>${f1(f.total)}</td></tr>`).join('');
-
-  const kt = vst.treino.media !== null ? f1(vst.treino.media) + ' kcal' : '—';
-  const kd = vst.descanso.media !== null ? f1(vst.descanso.media) + ' kcal' : '—';
-
-  return `<div class="card sec"><h2>Alimentação</h2><div class="sub">Consumo de calorias no período. Use o seletor para mudar a janela de todos os cards abaixo.</div>${periodo}
-    <div class="kpis">${kp(f1(media) + ' kcal', 'média em dias com registro')}${kp(f1(maior) + ' kcal', 'maior dia do período')}${kp(registrados.length + '/' + dias, 'dias com registro')}${kp(desvio !== null ? sg(desvio) + ' kcal' : '—', desvio !== null ? 'média vs meta' : 'sem meta definida')}</div>
-    <div class="meta">${registrados.length} de ${dias} dias com registro · total de ${Math.round(total).toLocaleString('pt-BR')} kcal</div></div>
-
-  <div class="card sec"><h2>Calorias por dia</h2><div class="sub">Cada barra é um dia. A linha tracejada é a média dos dias com registro.</div>${barrasData(hist.map(h => ({ data: h.data, v: h.total })), media)}</div>
-
-  <div class="card sec"><h2>Distribuição por refeição</h2><div class="sub">De onde vêm as calorias do período.</div>${linhasDist || '<div class="meta">Sem dados no período.</div>'}</div>
-
-  <div class="card sec"><h2>Alimentos mais frequentes</h2><div class="sub">O que aparece com mais frequência e quanto de calorias cada uso traz.</div>
-    ${freq.length ? `<table class="tb"><tr><th>Alimento</th><th>Vezes</th><th>Média kcal</th><th>Total kcal</th></tr>${linhasFreq}</table>` : '<div class="meta">Sem dados no período.</div>'}</div>
-
-  <div class="card sec"><h2>Treino vs descanso</h2><div class="sub">Média de calorias em dias com e sem séries registradas (somente dias com registro de alimentação).</div>
-    <div class="kpis">${kp(kt, 'média em dias de treino · ' + vst.treino.dias + ' dias')}${kp(kd, 'média em dias de descanso · ' + vst.descanso.dias + ' dias')}</div></div>`;
+function relNav(sec) {
+  const secs = [['treino', 'Treino'], ['corpo', 'Corpo'], ['alim', 'Alimentação']];
+  return `<div class="relnav">
+    <div class="tabs reltabs">${secs.map(([k, l]) => `<button data-a="relsec" data-v="${k}" class="${sec === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+    <select class="sel" data-k="periodo" aria-label="Período do relatório">
+      <option value="0" ${state.p === 0 ? 'selected' : ''}>Tudo</option>
+      ${[7, 30, 90].map(d => `<option value="${d}" ${d === state.p ? 'selected' : ''}>Últimos ${d} dias</option>`).join('')}
+    </select>
+  </div>`;
 }
 
-async function telaRel() {
-  const R = await registros();
-  const measurements = await getAllMeasurementsDesc();
-  const serieMed = campo => serieCampo(measurements, campo);
-
-  const vol = R.reduce((a, x) => a + x.v, 0);
-  const dias = new Set(R.map(x => x.d + '|' + x.s)).size;
-  let plan = 0;
-  DIAS.forEach((k, d) => { plan += defsDoDia(rotina, k).reduce((a, x) => a + Number(x.series || 0), 0) * MAXS(d); });
-
-  const pS = serieMed('peso');
-  const pAt = pS.length ? pS[pS.length - 1][1] : null;
-  const dP = pS.length > 1 ? pAt - pS[0][1] : null;
+async function secTreino(desde) {
   const kp = (b, s) => `<div class="kpi"><b>${b}</b><small>${s}</small></div>`;
-  const semVol = Array.from({ length: semanas() }, (_, i) => R.filter(x => x.s === i + 1).reduce((a, x) => a + x.v, 0));
+  const hoje = hojeISO();
+  const R = await registros(desde);
+  const vol = R.reduce((a, x) => a + x.v, 0);
+  const treinados = new Set(R.map(x => x.data));
+  const plan = planoJanela(desde);
+  const dj = diasJanela(desde);
+  const seq = melhorSequencia(treinados, desde);
+  const sems = semanasJanela(desde);
   const at = Math.max(0, ...R.map(x => x.s));
 
-  const gr = {};
-  R.forEach(x => { gr[x.grp] = (gr[x.grp] || 0) + 1; });
-  const gl = Object.entries(gr).sort((a, b) => b[1] - a[1]);
-  const gm = gl.length ? gl[0][1] : 1;
-  const grupos = gl.map(([n, c]) => `<div class="hbar"><span>${esc(n)}</span><span><i style="width:${c / gm * 100}%"></i></span><span>${c}</span></div>`).join('');
+  const volSem = {}, feitasSem = {}, planSem = {};
+  sems.forEach(s => { volSem[s] = 0; feitasSem[s] = 0; planSem[s] = 0; });
+  R.forEach(x => { if (x.s in volSem) { volSem[x.s] += x.v; feitasSem[x.s]++; } });
+  sems.forEach(s => {
+    DIAS.forEach((k, d) => {
+      if (s > MAXS(d)) return;
+      const data = iso(dataDe(s, d));
+      if (desde && data < desde) return;
+      if (data > hoje) return;
+      planSem[s] += defsDoDia(rotina, k).reduce((a, x) => a + Number(x.series || 0), 0);
+    });
+  });
+
+  const volData = {};
+  R.forEach(x => { volData[x.data] = (volData[x.data] || 0) + x.v; });
+  const grade = sems.map(s => Array.from({ length: 7 }, (_, d) => {
+    const data = iso(dataDe(s, d));
+    if (data > hoje || (desde && data < desde)) return null;
+    return { data, vol: volData[data] || 0, treinou: volData[data] !== undefined };
+  }));
 
   const ex = {};
   R.forEach(x => {
@@ -1443,58 +1586,237 @@ async function telaRel() {
     o.w[x.s] = Math.max(o.w[x.s] || 0, x.c);
     if (x.c > o.b || (x.c === o.b && x.r > o.br)) { o.b = x.c; o.br = x.r; }
   });
-  const lista = Object.entries(ex).sort((a, b) => b[1].v - a[1].v).map(([n, o]) => {
+  const progressao = Object.entries(ex).sort((a, b) => b[1].v - a[1].v).map(([n, o]) => {
     const ws = Object.keys(o.w).map(Number).sort((a, b) => a - b);
     const cs = ws.map(w => o.w[w]);
     const u = cs[cs.length - 1];
     const d = cs.length > 1 ? u - cs[0] : null;
     const pr = cs.length > 1 && u > Math.max(...cs.slice(0, -1));
-    return `<div class="ex"><div><b>${esc(n)}${pr ? '<span class="pr">recorde</span>' : ''}</b><small>melhor série: ${f1(o.b)} kg × ${o.br}${d !== null ? ` · ${sg(d)} kg desde a semana ${ws[0]}` : ''}</small></div>${spark(cs)}</div>`;
-  }).join('');
+    const travado = cs.length >= 4 && Math.max(...cs.slice(-3)) <= Math.max(...cs.slice(0, -3));
+    const html = `<div class="ex"><div><b>${esc(n)}${pr ? '<span class="pr">recorde</span>' : ''}</b><small>melhor série: ${f1(o.b)} kg × ${o.br}${d !== null ? ` · ${sg(d)} kg desde a semana ${ws[0]}` : ''}</small></div>${spark(cs)}</div>`;
+    return { n, o, u, travado, html };
+  });
 
+  const travados = progressao.filter(p => p.travado).slice(0, 4);
+  const recs = recordes(R);
+
+  const gr = {};
+  R.forEach(x => {
+    const g = gr[x.grp] = gr[x.grp] || { n: 0, v: 0 };
+    g.n++;
+    g.v += x.v;
+  });
+  const gl = Object.entries(gr).sort((a, b) => b[1].v - a[1].v);
+  const gm = Math.max(1, ...gl.map(([, g]) => g.v));
+  const grupos = gl.map(([n, g]) => `<div class="hbar"><span>${esc(n)}</span><span><i style="width:${(g.v / gm * 100).toFixed(0)}%"></i></span><span>${Math.round(g.v).toLocaleString('pt-BR')} kg · ${g.n} séries</span></div>`).join('');
+
+  const cardios = (await getAllCardios()).filter(c => !desde || c.data >= desde);
+  const minTotal = cardios.reduce((a, x) => a + (Number(x.minutos) || 0), 0);
+  const diasCardio = new Set(cardios.map(c => c.data)).size;
+  const pulados = await todosPulados();
+  const nPulos = Object.entries(pulados).filter(([d, p]) => p && (p.i || p.f) && (!desde || d >= desde)).length;
+  const pulosTxt = nPulos ? ` · ${nPulos} ${nPulos === 1 ? 'dia' : 'dias'} com cardio pulado` : '';
+  const minSem = sems.map(() => 0);
+  cardios.forEach(c => {
+    const d = dataParaDate(c.data);
+    const diff = Math.floor((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - iniDate()) / 864e5);
+    const i = sems.indexOf(Math.floor(diff / 7) + 1);
+    if (i >= 0) minSem[i] += Number(c.minutos) || 0;
+  });
+  const porTipo = {};
+  cardios.forEach(c => { porTipo[c.tipo] = (porTipo[c.tipo] || 0) + (Number(c.minutos) || 0); });
+  const tipos = Object.entries(porTipo).sort((a, b) => b[1] - a[1]);
+  const maxTipo = Math.max(1, ...tipos.map(t => t[1]));
+  const linhasTipo = tipos.map(([n, m]) => `<div class="hbar"><span>${esc(n)}</span><span><i style="width:${(m / maxTipo * 100).toFixed(0)}%"></i></span><span style="white-space:nowrap">${f1(m)} min</span></div>`).join('');
+  const histCardio = cardios.slice(0, 10)
+    .map(c => `<tr><td>${brd(c.data)}</td><td style="text-align:left">${esc(c.tipo)}</td><td>${f1(Number(c.minutos) || 0)}</td></tr>`)
+    .join('');
+
+  const cardioCard = `<div class="card sec"><h2>Cardio</h2>
+    <div class="sub">${cardios.length} registros · ${diasCardio} ${diasCardio === 1 ? 'dia' : 'dias'} · ${Math.floor(minTotal / 60)}h ${Math.round(minTotal % 60)}min no período${pulosTxt}</div>
+    ${cardios.length ? `${barras(minSem, at, 'min', sems)}${linhasTipo ? `<div class="meta" style="margin-top:12px">Minutos por tipo</div>${linhasTipo}` : ''}
+      <table class="tb" style="margin-top:10px"><tr><th style="width:26%">Dia</th><th style="width:54%;text-align:left">Atividade</th><th style="width:20%">Min</th></tr>${histCardio}</table>` : '<div class="meta">Nenhum cardio no período. Registre nas barras da tela Treino.</div>'}
+  </div>`;
+
+  const kpis = `<div class="kpis">
+    ${kp(treinados.size + '/' + dj, 'dias com treino · ' + Math.round(treinados.size / dj * 100) + '%')}
+    ${kp(plan ? R.length + '/' + plan : String(R.length), plan ? 'séries feitas · ' + Math.round(R.length / plan * 100) + '%' : 'séries feitas')}
+    ${kp(Math.round(vol).toLocaleString('pt-BR') + ' kg', 'volume no período')}
+    ${kp(seq + (seq === 1 ? ' dia' : ' dias'), 'melhor sequência')}
+  </div>`;
+
+  const consist = `<div class="card sec"><h2>Consistência</h2>
+    <div class="sub">Cada quadrado é um dia da semana. Quanto mais forte a cor, maior o volume treinado nesse dia.</div>
+    ${calor(grade)}
+    <div class="legenda"><span><i class="cx"></i>fora do período</span><span><i class="cv"></i>sem registro</span><span><i class="c1"></i>leve</span><span><i class="c2"></i>médio</span><span><i class="c3"></i>pesado</span></div>
+  </div>`;
+
+  const planoCard = `<div class="card sec"><h2>Séries planejadas × feitas</h2>
+    <div class="sub">A barra clara é o que o plano previa na semana; a forte é o que você fez.</div>
+    ${barras2(sems.map(s => feitasSem[s]), sems.map(s => planSem[s]), sems)}
+    <div class="legenda"><span><i class="pl"></i>planejadas</span><span><i class="at"></i>feitas</span></div>
+  </div>`;
+
+  const estagCard = travados.length ? `<div class="card sec"><h2>Possível estagnação</h2>
+    <div class="sub">A melhor carga desses exercícios não evoluiu nas últimas 3 semanas. Considere mudar séries, repetições ou descanso.</div>
+    ${travados.map(p => p.html).join('')}
+  </div>` : '';
+
+  const recsCard = recs.length ? `<div class="card sec"><h2>Recordes recentes</h2>
+    <div class="sub">Novas marcas de melhor série dentro do período.</div>
+    <table class="tb"><tr><th style="width:22%">Dia</th><th style="width:53%;text-align:left">Exercício</th><th style="width:25%">Carga</th></tr>
+    ${recs.map(r => `<tr><td>${brd(r.data)}</td><td style="text-align:left">${esc(r.nome)}</td><td>${f1(r.c)} kg</td></tr>`).join('')}</table>
+  </div>` : '';
+
+  return kpis + consist
+    + `<div class="card sec"><h2>Volume por semana</h2><div class="sub">Carga × repetições de todas as séries, em kg. A semana mais recente está destacada.</div>${barras(sems.map(s => volSem[s]), at, 'kg', sems)}</div>`
+    + planoCard
+    + `<div class="card sec"><h2>Progressão por exercício</h2><div class="sub">Maior carga de cada semana dentro do período. A linha mostra a tendência.</div>${progressao.map(p => p.html).join('') || VZ}</div>`
+    + estagCard
+    + recsCard
+    + `<div class="card sec"><h2>Volume por grupo muscular</h2><div class="sub">Volume total (carga × repetições) e quantidade de séries em cada grupo.</div>${grupos || VZ}</div>`
+    + cardioCard;
+}
+
+async function secCorpo(desde) {
+  const kp = (b, s) => `<div class="kpi"><b>${b}</b><small>${s}</small></div>`;
+  const measurements = (await getAllMeasurementsDesc()).filter(m => !desde || m.data >= desde);
+  const serieMed = campo => serieCampo(measurements, campo);
+  const serieDe = campo => {
+    const s = serieMed(campo);
+    return { s, atual: s.length ? s[s.length - 1][1] : null, var: s.length > 1 ? s[s.length - 1][1] - s[0][1] : null };
+  };
+
+  const peso = serieDe('peso');
+  const gordura = serieDe('gord');
+  const cintura = serieDe('cint');
+
+  const datas = measurements.map(m => m.data).sort();
+  let entre = null;
+  if (datas.length > 1) {
+    let soma = 0;
+    for (let i = 1; i < datas.length; i++) soma += Math.round((dataParaDate(datas[i]) - dataParaDate(datas[i - 1])) / 864e5);
+    entre = Math.round(soma / (datas.length - 1));
+  }
+
+  const kpis = `<div class="kpis">
+    ${kp(peso.atual !== null ? f1(peso.atual) + ' kg' : '—', peso.var !== null ? sg(peso.var) + ' kg no período' : 'peso atual')}
+    ${kp(gordura.atual !== null ? f1(gordura.atual) + '%' : '—', gordura.var !== null ? sg(gordura.var) + '% no período' : 'gordura corporal')}
+    ${kp(cintura.atual !== null ? f1(cintura.atual) + ' cm' : '—', cintura.var !== null ? sg(cintura.var) + ' cm no período' : 'cintura')}
+    ${kp(String(measurements.length), entre !== null ? `medições · a cada ${entre} dias` : 'medições no período')}
+  </div>`;
+
+  const opts = MED.map(x => `<option value="${x[0]}" ${x[0] === state.m ? 'selected' : ''}>${x[1]}</option>`).join('');
   const linhas = MED.map(([k, n, u]) => {
     const s = serieMed(k);
     if (!s.length) return '';
     const a = s[0][1], b = s[s.length - 1][1];
-    return `<tr><td>${n}</td><td>${f1(a)}</td><td>${f1(b)}</td><td>${s.length > 1 ? sg(b - a) + ' ' + u : '—'}</td></tr>`;
+    return `<tr><td><div class="med"><span>${n}</span>${spark(s.map(x => x[1]))}</div></td><td>${f1(a)}</td><td>${f1(b)}</td><td>${s.length > 1 ? sg(b - a) + ' ' + u : '—'}</td></tr>`;
   }).join('');
 
-  const opts = MED.map(x => `<option value="${x[0]}" ${x[0] === state.m ? 'selected' : ''}>${x[1]}</option>`).join('');
+  return kpis + `<div class="card sec"><h2>Evolução das medidas</h2>
+    <div class="sub">Valores registrados no período. Use o seletor para trocar a medida do gráfico.</div>
+    <select class="sel" data-k="metrica" style="margin:8px 0 12px">${opts}</select>${linha(serieMed(state.m).map(x => [brd(x[0]), x[1]]))}
+    ${linhas ? `<table class="tb tbmed" style="margin-top:12px"><tr><th style="width:46%">Medida</th><th style="width:18%">Início</th><th style="width:17%">Atual</th><th style="width:19%">Variação</th></tr>${linhas}</table>` : '<div class="meta">Nenhuma medida no período. Registre na aba Medidas.</div>'}
+  </div>`;
+}
 
-  const cardios = await getAllCardios();
-  const minTotal = cardios.reduce((a, x) => a + (Number(x.minutos) || 0), 0);
-  const nPulos = Object.values(await todosPulados()).filter(p => p && (p.i || p.f)).length;
-  const pulosTxt = nPulos ? ` · ${nPulos} ${nPulos === 1 ? 'dia' : 'dias'} com cardio pulado` : '';
-  const porSemana = Array.from({ length: semanas() }, () => 0);
-  cardios.forEach(c => {
-    const d = dataParaDate(c.data);
-    const diff = Math.floor((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - iniDate()) / 864e5);
-    const s = Math.floor(diff / 7) + 1;
-    if (s >= 1 && s <= porSemana.length) porSemana[s - 1] += Number(c.minutos) || 0;
+async function diasAlimento() {
+  if (state.p) return state.p;
+  const primeira = await primeiraData();
+  return primeira ? diasJanela(primeira) : 30;
+}
+
+async function cardRelAlimentacao(desde, dias) {
+  const kp = (b, s) => `<div class="kpi"><b>${b}</b><small>${s}</small></div>`;
+  const ate = hojeISO();
+
+  const [hist, dist, freq, vst, meta, pilhas] = await Promise.all([
+    historicoCalorias(dias, ate),
+    distribuicaoRefeicao(dias, ate),
+    alimentosFrequentes(dias, ate),
+    treinoVsDescanso(dias, ate),
+    getMeta(),
+    historicoPorRefeicao(dias, ate)
+  ]);
+
+  if (!freq.length) {
+    return `<div class="card sec"><h2>Alimentação</h2><div class="sub">Consumo de calorias por dia, por refeição e por alimento.</div>
+      <div class="meta">Nenhum registro de alimentação no período. Registre na aba Alimentação.</div></div>`;
+  }
+
+  const registrados = hist.filter(h => h.total > 0);
+  const total = hist.reduce((a, h) => a + h.total, 0);
+  const media = registrados.length ? total / registrados.length : 0;
+  const maior = Math.max(...hist.map(h => h.total));
+  const desvio = meta !== null && registrados.length
+    ? registrados.reduce((a, h) => a + (h.total - meta), 0) / registrados.length
+    : null;
+  const dentro = meta !== null ? registrados.filter(h => h.total <= meta).length : null;
+  const pctDentro = dentro !== null && registrados.length ? Math.round(dentro / registrados.length * 100) : null;
+
+  const mm7 = hist.map((h, i) => {
+    const j = hist.slice(Math.max(0, i - 6), i + 1);
+    return j.reduce((a, x) => a + x.total, 0) / j.length;
   });
-  const maxMin = Math.max(1, ...porSemana);
-  const linhasCardio = porSemana
-    .map((min, i) => min > 0 ? `<div class="hbar"><span>Semana ${i + 1}</span><span><i style="width:${(min / maxMin * 100).toFixed(0)}%"></i></span><span style="white-space:nowrap">${f1(min)} min</span></div>` : '')
-    .join('');
-  const histCardio = cardios.slice(0, 10)
-    .map(c => `<tr><td>${brd(c.data)}</td><td style="text-align:left">${esc(c.tipo)}</td><td>${f1(Number(c.minutos) || 0)}</td></tr>`)
-    .join('');
-  const cardioCard = cardios.length
-    ? `<div class="card sec"><h2>Cardio</h2><div class="sub">${cardios.length} registros · ${Math.floor(minTotal / 60)}h ${Math.round(minTotal % 60)}min no total${pulosTxt}</div>${linhasCardio || '<div class="meta">Registros fora do período da rotina atual.</div>'}
-      <table class="tb" style="margin-top:10px"><tr><th>Dia</th><th>Atividade</th><th>Min</th></tr>${histCardio}</table></div>`
-    : `<div class="card sec"><h2>Cardio</h2><div class="sub">Nenhum cardio registrado ainda. Registre nas barras da tela Treino.${pulosTxt}</div></div>`;
 
-  const alimCards = await cardRelAlimentacao();
+  const pilhasAtivas = pilhas.refeicoes.filter(r => r.valores.some(v => v > 0)).slice(0, 6);
+  const pilhasCard = pilhasAtivas.length ? `<div class="card sec"><h2>Calorias por refeição</h2>
+    <div class="sub">Cada barra é um dia, empilhada pelas refeições do dia.</div>
+    ${empilhadas(pilhas.datas, pilhasAtivas)}
+    <div class="legenda">${pilhasAtivas.map((r, i) => `<span><i class="s${i}"></i>${esc(r.nome)}</span>`).join('')}</div>
+  </div>` : '';
 
-  return `<div class="kpis">${kp(dias, 'treinos feitos')}${kp(R.length + '/' + plan, 'séries feitas')}${kp(Math.round(vol).toLocaleString('pt-BR') + ' kg', 'volume total')}${kp(pAt !== null ? f1(pAt) + ' kg' : '—', dP !== null ? sg(dP) + ' kg desde o início' : 'peso atual')}</div>
-  <div class="card sec"><h2>Volume por semana</h2><div class="sub">Carga × repetições de todas as séries. A semana mais recente está destacada.</div>${barras(semVol, at)}</div>
-  <div class="card sec"><h2>Evolução das medidas</h2><select class="sel" data-k="metrica" style="margin:8px 0 12px">${opts}</select>${linha(serieMed(state.m).map(x => [brd(x[0]), x[1]]))}
-  ${linhas ? `<table class="tb" style="margin-top:12px"><tr><th>Medida</th><th>Início</th><th>Atual</th><th>Variação</th></tr>${linhas}</table>` : ''}</div>
-  <div class="card sec"><h2>Progressão por exercício</h2><div class="sub">Maior carga de cada semana, somando os dias em que o exercício aparece. A linha mostra a tendência.</div>${lista || VZ}</div>
-  <div class="card sec"><h2>Séries por grupo muscular</h2><div class="sub">Quantas séries você já fez em cada grupo.</div>${grupos || VZ}</div>
-  ${cardioCard}
-  ${alimCards}
-  <div class="card sec"><h2>Backup e importação</h2><div class="sub">Baixe um backup do que está neste aparelho, importe um backup .json gerado por este app ou importe os dados preenchidos no exemplo (.json/.html).</div>
+  const linhasDist = dist.filter(d => d.total > 0).map(d => `<div class="hbar">
+    <span>${esc(d.nome)}</span><span><i style="width:${d.pct}%"></i></span>
+    <span style="white-space:nowrap">${d.pct}% · ${f1(d.total)} kcal</span></div>`).join('');
+
+  const linhasFreq = freq.slice(0, 12).map(f => `<tr><td>${esc(f.nome)}</td><td>${f.vezes}</td><td>${f1(f.media)}</td><td>${f1(f.total)}</td></tr>`).join('');
+
+  const maxVD = Math.max(vst.treino.media || 0, vst.descanso.media || 0, 1);
+  const vd = (o, nome) => o.media === null ? '' : `<div class="hbar">
+    <span>${nome}</span><span><i style="width:${(o.media / maxVD * 100).toFixed(0)}%"></i></span>
+    <span style="white-space:nowrap">${f1(o.media)} kcal · ${o.dias} dias</span></div>`;
+  const vdHtml = vd(vst.treino, 'Treino') + vd(vst.descanso, 'Descanso');
+
+  const kpis = `<div class="kpis">
+    ${kp(f1(media) + ' kcal', 'média em dias com registro')}
+    ${kp(registrados.length + '/' + dias, 'dias com registro')}
+    ${pctDentro !== null ? kp(pctDentro + '%', 'dias dentro da meta') : kp(desvio !== null ? sg(desvio) + ' kcal' : '—', desvio !== null ? 'média vs meta' : 'sem meta definida')}
+    ${kp(f1(maior) + ' kcal', 'maior dia do período')}
+  </div>`;
+
+  return `<div class="card sec"><h2>Alimentação</h2>
+    <div class="sub">Consumo de calorias no período selecionado no topo da tela.</div>
+    ${kpis}
+    <div class="meta">${registrados.length} de ${dias} dias com registro · total de ${Math.round(total).toLocaleString('pt-BR')} kcal</div>
+  </div>
+
+  <div class="card sec"><h2>Calorias por dia</h2>
+    <div class="sub">Cada barra é um dia. A linha tracejada é a meta${meta === null ? ' (defina em Alimentação)' : ''} e a curva é a média móvel de 7 dias.</div>
+    ${barrasData(hist.map(h => ({ data: h.data, v: h.total })), { media, meta, mm7 })}
+    <div class="legenda"><span><i class="${meta !== null ? 'gmeta' : 'gmed'}"></i>${meta !== null ? 'meta' : 'média'}</span><span><i class="glin"></i>média 7 dias</span></div>
+  </div>
+
+  ${pilhasCard}
+
+  <div class="card sec"><h2>Distribuição por refeição</h2><div class="sub">De onde vêm as calorias do período.</div>${linhasDist || '<div class="meta">Sem dados no período.</div>'}</div>
+
+  <div class="card sec"><h2>Alimentos mais frequentes</h2><div class="sub">O que aparece com mais frequência e quanto de calorias cada uso traz.</div>
+    ${freq.length ? `<table class="tb"><tr><th style="width:46%;text-align:left">Alimento</th><th style="width:18%">Vezes</th><th style="width:18%">Média kcal</th><th style="width:18%">Total kcal</th></tr>${linhasFreq}</table>` : '<div class="meta">Sem dados no período.</div>'}</div>
+
+  <div class="card sec"><h2>Treino vs descanso</h2><div class="sub">Média de calorias em dias com e sem séries registradas (somente dias com registro de alimentação).</div>
+    ${vdHtml || '<div class="meta">Sem dados no período.</div>'}</div>`;
+}
+
+async function telaRel() {
+  const sec = state.relSec;
+  const { desde, dias } = janelaRel();
+  const corpo = sec === 'corpo' ? await secCorpo(desde)
+    : sec === 'alim' ? await cardRelAlimentacao(desde, dias || await diasAlimento())
+      : await secTreino(desde);
+
+  return relNav(sec) + corpo + `<div class="card sec"><h2>Backup e importação</h2><div class="sub">Baixe um backup do que está neste aparelho, importe um backup .json gerado por este app ou importe os dados preenchidos no exemplo (.json/.html).</div>
     <div class="acoes"><button class="btn" data-a="backup">Baixar backup</button><button class="btn p" data-a="importar-backup">Importar backup</button></div>
     <div class="acoes"><button class="btn" data-a="importar-exemplo">Importar dados do exemplo</button></div>
     <input type="file" id="arquivoBackup" accept=".json,application/json" style="display:none">
@@ -1788,7 +2110,7 @@ document.addEventListener('input', async ev => {
     return;
   }
 
-  if (k === 'alimperiodo') {
+  if (k === 'periodo') {
     state.p = +el.value;
     await render();
     return;
@@ -2161,6 +2483,10 @@ document.addEventListener('click', async ev => {
     aviso('Preenchido com a semana ' + u.w);
   } else if (a === 'tela') {
     state.tela = b.dataset.t;
+    await render();
+    scrollTo(0, 0);
+  } else if (a === 'relsec') {
+    state.relSec = b.dataset.v;
     await render();
     scrollTo(0, 0);
   } else if (a === 'mdia') {
