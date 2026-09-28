@@ -65,9 +65,11 @@ import {
   salvarMeta,
   adicionarItem,
   removerItem,
+  editarItem,
   buscarAlimento,
   salvarReferencia,
-  getCatalogo,
+  buscarCatalogo,
+  TAM_PAGINA,
   resumoDoDia,
   historicoCalorias,
   distribuicaoRefeicao,
@@ -118,7 +120,9 @@ const state = {
   md: hojeISO(),  // date selected in the Medidas screen
   alim: hojeISO(),// date selected in the Alimentação screen
   m: 'peso',      // metric selected in the report chart
-  p: 30           // period (days) of the food reports
+  p: 30,          // period (days) of the food reports
+  alimEdit: null,   // id of the day's item being edited (Alimentação screen)
+  alimEditRef: null // kcal per 100 g of the item being edited
 };
 
 let exercisesById = new Map();
@@ -954,13 +958,258 @@ async function atualizarAlimAuto(prefill) {
   }
 }
 
+/* --- Paginated suggestion lists (type-ahead of the Alimento field + catalog) --- */
+
+function novaLista() {
+  return { termo: '', offset: 0, itens: [], temMais: false, total: 0, carregando: false, pronto: false, aberto: false, seq: 0 };
+}
+
+let sugState = novaLista(); // drop-down that opens from the "Alimento" field
+let catState = novaLista(); // "Alimentos por 100 g" list
+let timerSug = null;
+let timerCat = null;
+
+/** Forget both lists (called whenever the screen is re-rendered). */
+function resetarListas() {
+  clearTimeout(timerSug);
+  clearTimeout(timerCat);
+  timerSug = timerCat = null;
+  sugState = novaLista();
+  catState = novaLista();
+}
+
+/** True when a scrollable box is close enough to its bottom to load more. */
+function semFim(el, margem) {
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= (margem || 60);
+}
+
+function linhaSugestao(f) {
+  const nome = f.exibicao || f.nome || '';
+  const ref = f.kcal100 !== null && f.kcal100 !== undefined && Number(f.kcal100) > 0
+    ? `${f1(f.kcal100)} kcal/100 g`
+    : 'sem referência';
+  const usos = `${f.vezes || 0} registro${(f.vezes || 0) === 1 ? '' : 's'}`;
+  return `<button type="button" class="li" data-a="alimsel" data-n="${esc(nome)}"><span class="n"><b>${esc(nome)}</b><small>${ref} · ${usos}</small></span></button>`;
+}
+
+function linhaCatalogo(f) {
+  const nome = f.exibicao || f.nome || '';
+  return `<div class="li" style="padding:8px 10px">
+    <span class="n"><b>${esc(nome)}</b><small>${f.vezes || 0} registro${(f.vezes || 0) === 1 ? '' : 's'}</small></span>
+    <input class="sel" data-k="alkcal" data-n="${esc(f.nome)}" inputmode="decimal" value="${f.kcal100 === null || f.kcal100 === undefined ? '' : String(f.kcal100).replace('.', ',')}" placeholder="?" style="width:88px;flex:none;height:40px;text-align:center" aria-label="Calorias por 100 g de ${esc(nome)}">
+    <span style="font-size:12px;color:var(--mut);white-space:nowrap">kcal/100 g</span></div>`;
+}
+
+function htmlSugestoes() {
+  const st = sugState;
+  const corpo = st.itens.length
+    ? st.itens.map(linhaSugestao).join('')
+    : `<div class="meta" style="padding:12px">${st.termo
+      ? 'Nenhum alimento encontrado — o texto digitado pode ser registrado assim mesmo.'
+      : 'Nenhum alimento no catálogo ainda — digite o nome.'}</div>`;
+  return corpo + (st.carregando ? '<div class="meta" style="text-align:center;padding:8px">Carregando…</div>' : '');
+}
+
+function htmlCatalogo() {
+  const st = catState;
+  const corpo = st.itens.length
+    ? st.itens.map(linhaCatalogo).join('')
+    : `<div class="meta">${st.termo ? 'Nenhum alimento encontrado.' : 'Nenhum alimento no catálogo ainda.'}</div>`;
+  const contagem = st.itens.length
+    ? `<div class="meta" style="text-align:center;font-size:12px">${st.itens.length}${st.total ? ` de ${st.total}` : ''}</div>`
+    : '';
+  const carga = st.carregando ? '<div class="meta" style="text-align:center;padding:6px">Carregando…</div>' : '';
+  return corpo + contagem + carga;
+}
+
+function pintarSugestoes(reset) {
+  const box = document.getElementById('alimSug');
+  if (!box) return;
+  const top = box.scrollTop;
+  box.innerHTML = htmlSugestoes();
+  box.scrollTop = reset ? 0 : top;
+}
+
+function pintarCatalogo(reset) {
+  const box = document.getElementById('alimCatLista');
+  if (!box) return;
+  const top = box.scrollTop;
+  box.innerHTML = htmlCatalogo();
+  box.scrollTop = reset ? 0 : top;
+}
+
+/**
+ * Fetch one page of the type-ahead list and merge it into the state. A stale
+ * request (a newer search already started) is discarded.
+ * @param {boolean} reset - restart the list from the first page
+ */
+async function carregarSugestoes(reset) {
+  const st = sugState;
+  if (st.carregando && !reset) return;
+  const termo = st.termo;
+  const offset = reset ? 0 : st.offset;
+  const seq = ++st.seq;
+  st.carregando = true;
+  pintarSugestoes(reset);
+  try {
+    const r = await buscarCatalogo(termo, offset, TAM_PAGINA);
+    if (seq !== st.seq || st !== sugState) return;
+    st.itens = reset ? r.itens : st.itens.concat(r.itens);
+    st.offset = offset + r.itens.length;
+    st.temMais = r.temMais;
+    st.total = r.total;
+    st.pronto = true;
+  } finally {
+    if (seq === st.seq && st === sugState) {
+      st.carregando = false;
+      pintarSugestoes(reset);
+    }
+  }
+}
+
+/** Same as carregarSugestoes, for the "Alimentos por 100 g" list. */
+async function carregarCatalogo(reset) {
+  const st = catState;
+  if (st.carregando && !reset) return;
+  const termo = st.termo;
+  const offset = reset ? 0 : st.offset;
+  const seq = ++st.seq;
+  st.carregando = true;
+  pintarCatalogo(reset);
+  try {
+    const r = await buscarCatalogo(termo, offset, TAM_PAGINA);
+    if (seq !== st.seq || st !== catState) return;
+    st.itens = reset ? r.itens : st.itens.concat(r.itens);
+    st.offset = offset + r.itens.length;
+    st.temMais = r.temMais;
+    st.total = r.total;
+    st.pronto = true;
+  } finally {
+    if (seq === st.seq && st === catState) {
+      st.carregando = false;
+      pintarCatalogo(reset);
+    }
+  }
+}
+
+/** Debounced search of the type-ahead list (keeps the field focus). */
+function agendaSugestoes(termo) {
+  sugState.termo = termo;
+  clearTimeout(timerSug);
+  timerSug = setTimeout(() => carregarSugestoes(true), 150);
+}
+
+/** Debounced search of the "Alimentos por 100 g" list (keeps the focus). */
+function agendaCatalogo(termo) {
+  catState.termo = termo;
+  clearTimeout(timerCat);
+  timerCat = setTimeout(() => carregarCatalogo(true), 150);
+}
+
+/**
+ * Cap the drop-down so it always ends above the "Adicionar" button: the list
+ * covers the fields below the Alimento input but never the button.
+ */
+function ajustarAlturaPop() {
+  const box = document.getElementById('alimSug');
+  const wrap = box && box.closest('.alim-wrap');
+  if (!box || !wrap) return;
+  box.style.maxHeight = '';
+  const card = wrap.closest('.card');
+  const acoes = card && card.querySelector('.acoes');
+  if (!acoes) return;
+  const topo = wrap.getBoundingClientRect().bottom + 6;
+  const disponivel = acoes.getBoundingClientRect().top - 8 - topo;
+  if (disponivel > 96) box.style.maxHeight = `${Math.floor(disponivel)}px`;
+}
+
+/** Open the drop-down under the Alimento field, loading its first page. */
+async function abrirSugestoes() {
+  const box = document.getElementById('alimSug');
+  if (!box || sugState.aberto) return;
+  const nomeEl = document.getElementById('alimNome');
+  sugState.aberto = true;
+  box.hidden = false;
+  if (nomeEl) nomeEl.setAttribute('aria-expanded', 'true');
+  ajustarAlturaPop();
+  const termo = nomeEl ? nomeEl.value : '';
+  if (!sugState.pronto || sugState.termo !== termo) {
+    sugState.termo = termo;
+    await carregarSugestoes(true);
+  } else {
+    pintarSugestoes(false);
+  }
+}
+
+function fecharSugestoes() {
+  sugState.aberto = false;
+  const box = document.getElementById('alimSug');
+  if (box) box.hidden = true;
+  const nomeEl = document.getElementById('alimNome');
+  if (nomeEl) nomeEl.setAttribute('aria-expanded', 'false');
+}
+
+/** Fill the Alimento field from a suggestion and move on to the grams. */
+function escolherSugestao(nome) {
+  const nomeEl = document.getElementById('alimNome');
+  const gEl = document.getElementById('alimG');
+  if (nomeEl) nomeEl.value = nome || '';
+  fecharSugestoes();
+  atualizarAlimAuto(true).catch(err => console.error('Erro ao calcular calorias:', err));
+  if (gEl) gEl.focus();
+}
+
+/** Row of a day's item: read mode (edit/remove) or inline editor. */
+function linhaItemDia(i) {
+  const gramas = i.gramas !== null && i.gramas !== undefined ? f1(i.gramas) + ' g · ' : '';
+  if (state.alimEdit !== i.id) {
+    return `<div class="li"><span class="n"><b>${esc(i.alimento)}</b><small>${gramas}${f1(i.calorias)} kcal</small></span>
+      <button class="btn" style="width:40px;height:40px;flex:none" data-a="ialimedit" data-v="${i.id}" data-n="${esc(i.alimento)}" data-r="${i.kcal100 === null || i.kcal100 === undefined ? '' : i.kcal100}" aria-label="Editar item ${esc(i.alimento)}">✎</button>
+      <button class="btn" style="width:40px;height:40px;flex:none" data-a="iremoveralim" data-v="${i.id}" aria-label="Remover item">×</button></div>`;
+  }
+
+  const ref = state.alimEditRef;
+  const temRef = ref !== null && ref !== undefined && isFinite(Number(ref)) && Number(ref) > 0;
+  const gv = i.gramas === null || i.gramas === undefined ? '' : String(i.gramas).replace('.', ',');
+  const kv = temRef
+    ? (i.gramas !== null && i.gramas !== undefined
+      ? String(r1n(Number(i.gramas) * Number(ref) / 100)).replace('.', ',')
+      : '')
+    : (i.calorias === null || i.calorias === undefined ? '' : String(i.calorias).replace('.', ','));
+
+  return `<div class="li" style="flex-wrap:wrap">
+    <span class="n" style="min-width:100%"><b>${esc(i.alimento)}</b><small>${temRef
+      ? `${f1(Number(ref))} kcal/100 g — as calorias vêm da conversão`
+      : 'sem referência por 100 g — informe as calorias'}</small></span>
+    <div style="display:flex;gap:8px;width:100%">
+      <input class="sel" id="alimEditG" inputmode="decimal" value="${esc(gv)}" placeholder="gramas" style="flex:1;height:44px" aria-label="Gramas de ${esc(i.alimento)}">
+      <input class="sel" id="alimEditK" inputmode="decimal" value="${esc(kv)}" placeholder="kcal" ${temRef ? 'readonly' : ''} style="flex:1;height:44px" aria-label="Calorias de ${esc(i.alimento)}">
+    </div>
+    <div class="acoes" style="width:100%;margin-top:8px">
+      <button class="btn p" data-a="ialimsalvar" data-v="${i.id}">Salvar</button>
+      <button class="btn" data-a="ialimcancel">Cancelar</button>
+    </div></div>`;
+}
+
 async function telaAlimentacao() {
+  resetarListas();
   const data = state.alim;
-  const [resumo, refeicoes, catalogo] = await Promise.all([
+  const [resumo, refeicoes, primeira] = await Promise.all([
     resumoDoDia(data),
     getRefeicoes(),
-    getCatalogo()
+    buscarCatalogo('', 0, TAM_PAGINA)
   ]);
+
+  sugState.itens = primeira.itens;
+  sugState.offset = primeira.itens.length;
+  sugState.temMais = primeira.temMais;
+  sugState.total = primeira.total;
+  sugState.pronto = true;
+  catState.itens = primeira.itens;
+  catState.offset = primeira.itens.length;
+  catState.temMais = primeira.temMais;
+  catState.total = primeira.total;
+  catState.pronto = true;
 
   const meta = resumo.meta;
   const excedeu = meta !== null && resumo.total > meta;
@@ -981,26 +1230,20 @@ async function telaAlimentacao() {
 
   const opts = refeicoes.map(r => `<option value="${r.id}">${esc(r.nome)}</option>`).join('');
   const sugerida = refeicaoSugerida(refeicoes);
-  const chips = catalogo.slice(0, 12).map(f => {
+  const chips = primeira.itens.slice(0, 12).map(f => {
     const g = f.ultimoGramas === null || f.ultimoGramas === undefined ? '' : String(f.ultimoGramas).replace('.', ',');
     const c = f.ultimoCalorias === null || f.ultimoCalorias === undefined ? '' : String(f.ultimoCalorias).replace('.', ',');
     return `<button class="grp" data-a="alimchip" data-n="${esc(f.exibicao)}" data-g="${esc(g)}" data-c="${esc(c)}" style="border:0;cursor:pointer;margin:0 6px 6px 0;font:inherit">${esc(f.exibicao)}</button>`;
   }).join('');
 
   const grupos = resumo.porRefeicao.map(r => {
-    const itens = r.itens.map(i => `<div class="li"><span class="n"><b>${esc(i.alimento)}</b><small>${i.gramas !== null && i.gramas !== undefined ? f1(i.gramas) + ' g · ' : ''}${f1(i.calorias)} kcal</small></span>
-      <button class="btn" style="width:40px;height:40px;flex:none" data-a="iremoveralim" data-v="${i.id}" aria-label="Remover item">×</button></div>`).join('');
+    const itens = r.itens.map(linhaItemDia).join('');
     return `<div class="sub" style="margin-top:12px"><b>${esc(r.nome)}</b> · ${f1(r.total)} kcal</div>${itens || '<div class="meta">Nada registrado.</div>'}`;
   }).join('');
 
   const gerenciar = refeicoes.map(r => `<div class="li" style="padding:8px 10px">
     <input class="sel" data-k="alimrefnome" data-v="${r.id}" value="${esc(r.nome)}" style="flex:1;height:40px;text-align:left" aria-label="Nome da refeição ${esc(r.nome)}">
     <button class="btn" style="width:40px;height:40px;flex:none" data-a="alimrefdel" data-v="${r.id}" aria-label="Remover refeição ${esc(r.nome)}">×</button></div>`).join('');
-
-  const refsLista = catalogo.map(f => `<div class="li" style="padding:8px 10px">
-    <span class="n"><b>${esc(f.exibicao)}</b><small>${f.vezes || 0} registro${(f.vezes || 0) === 1 ? '' : 's'}</small></span>
-    <input class="sel" data-k="alkcal" data-n="${esc(f.nome)}" inputmode="decimal" value="${f.kcal100 === null || f.kcal100 === undefined ? '' : String(f.kcal100).replace('.', ',')}" placeholder="?" style="width:88px;flex:none;height:40px;text-align:center" aria-label="Calorias por 100 g de ${esc(f.exibicao)}">
-    <span style="font-size:12px;color:var(--mut);white-space:nowrap">kcal/100 g</span></div>`).join('');
 
   return `<div class="card sec"><h2>Resumo do dia</h2>
     <input type="date" class="sel" data-k="alimdata" value="${data}" style="margin-bottom:12px" aria-label="Data do registro">
@@ -1013,8 +1256,12 @@ async function telaAlimentacao() {
   <div class="card sec"><h2>Registrar</h2>
     <div class="sub">Com a referência de 100 g, digite só as gramas — as calorias vêm na conversão.</div>
     <div class="frm">
-      <div><label>Refeição</label><select class="sel" id="alimRef" aria-label="Refeição">${opts.replace(`value="${sugerida}"`, `value="${sugerida}" selected`)}</select></div>
-      <div><label>Alimento</label><input id="alimNome" data-k="alimNome" placeholder="ex.: Frango grelhado" aria-label="Alimento"></div>
+      <div style="grid-column:1/-1"><label>Refeição</label><select class="sel" id="alimRef" aria-label="Refeição">${opts.replace(`value="${sugerida}"`, `value="${sugerida}" selected`)}</select></div>
+      <div class="alim-wrap">
+        <label>Alimento</label>
+        <input id="alimNome" data-k="alimNome" placeholder="ex.: Frango grelhado" aria-label="Alimento" autocomplete="off" enterkeyhint="next" aria-autocomplete="list" aria-expanded="false">
+        <div id="alimSug" class="pop" role="listbox" hidden></div>
+      </div>
       <div><label>Gramas</label><input id="alimG" data-k="alimG" inputmode="decimal" placeholder="ex.: 150" aria-label="Gramas"></div>
       <div><label>Calorias</label><input id="alimK" data-k="alimK" inputmode="decimal" placeholder="ex.: 250" aria-label="Calorias"></div>
     </div>
@@ -1027,7 +1274,8 @@ async function telaAlimentacao() {
 
   <div class="card sec"><h2>Alimentos por 100 g</h2>
     <div class="sub">A referência de calorias a cada 100 g de cada alimento. Salvar um item nunca altera este valor — ele só muda aqui.</div>
-    ${refsLista || '<div class="meta">Nenhum alimento no catálogo ainda.</div>'}
+    <input class="sel" id="alimCatBusca" data-k="alimcatbusca" placeholder="Buscar alimento…" aria-label="Buscar alimento por 100 g" autocomplete="off" style="margin-bottom:10px">
+    <div id="alimCatLista" class="lista-scroll">${htmlCatalogo()}</div>
     <div class="frm" style="margin-top:8px">
       <div style="grid-column:1/-1"><label>Novo alimento</label><input id="alimAlNovo" placeholder="ex.: Iogurte natural" aria-label="Novo alimento"></div>
       <div><label>Calorias por 100 g</label><input id="alimKcalNovo" inputmode="decimal" placeholder="ex.: 60" aria-label="Calorias por 100 gramas"></div>
@@ -1529,6 +1777,8 @@ document.addEventListener('input', async ev => {
     if (el.value) {
       await aguardarGravacoes();
       state.alim = el.value;
+      state.alimEdit = null;
+      state.alimEditRef = null;
       await render();
     }
     return;
@@ -1540,8 +1790,19 @@ document.addEventListener('input', async ev => {
     return;
   }
 
-  if (k === 'alimNome' || k === 'alimG') {
+  if (k === 'alimNome') {
     await atualizarAlimAuto(false);
+    agendaSugestoes(el.value);
+    return;
+  }
+
+  if (k === 'alimG') {
+    await atualizarAlimAuto(false);
+    return;
+  }
+
+  if (k === 'alimcatbusca') {
+    agendaCatalogo(el.value);
     return;
   }
 
@@ -1727,6 +1988,9 @@ document.addEventListener('click', async ev => {
         gramas: (document.getElementById('alimG') || {}).value,
         calorias: (document.getElementById('alimK') || {}).value
       });
+      state.alimEdit = null;
+      state.alimEditRef = null;
+      fecharSugestoes();
       await render();
       aviso('Item registrado ✓');
     } catch (err) {
@@ -1748,10 +2012,61 @@ document.addEventListener('click', async ev => {
     return;
   }
 
+  if (a === 'alimsel') {
+    escolherSugestao(b.dataset.n || '');
+    return;
+  }
+
   if (a === 'iremoveralim') {
     await removerItem(v);
+    state.alimEdit = null;
+    state.alimEditRef = null;
     await render();
     aviso('Item removido');
+    return;
+  }
+
+  if (a === 'ialimedit') {
+    try {
+      const f = await buscarAlimento(b.dataset.n || '');
+      const doCat = f && f.kcal100 !== null && f.kcal100 !== undefined && Number(f.kcal100) > 0
+        ? Number(f.kcal100)
+        : null;
+      const doItem = Number(b.dataset.r);
+      state.alimEditRef = doCat !== null
+        ? doCat
+        : (isFinite(doItem) && doItem > 0 ? doItem : null);
+      state.alimEdit = v;
+      await render();
+      const g = document.getElementById('alimEditG');
+      if (g) { g.focus(); g.select && g.select(); }
+    } catch (err) {
+      aviso(err.message);
+    }
+    return;
+  }
+
+  if (a === 'ialimcancel') {
+    state.alimEdit = null;
+    state.alimEditRef = null;
+    await render();
+    return;
+  }
+
+  if (a === 'ialimsalvar') {
+    try {
+      await editarItem(v, {
+        gramas: (document.getElementById('alimEditG') || {}).value,
+        calorias: (document.getElementById('alimEditK') || {}).value
+      });
+      state.alimEdit = null;
+      state.alimEditRef = null;
+      await render();
+      aviso('Item atualizado ✓');
+    } catch (err) {
+      console.error('Erro ao editar item:', err);
+      aviso(err.message);
+    }
     return;
   }
 
@@ -1851,6 +2166,45 @@ document.addEventListener('click', async ev => {
   }
 });
 
+/* --- Food suggestion lists (open, pagination, close) --- */
+
+document.addEventListener('focusin', ev => {
+  const el = ev.target;
+  if (el && el.id === 'alimNome') {
+    abrirSugestoes().catch(err => console.error('Erro ao abrir sugestões:', err));
+  }
+});
+
+// Close the drop-down when tapping anywhere outside the Alimento field.
+document.addEventListener('click', ev => {
+  if (!sugState.aberto) return;
+  const alvo = ev.target;
+  if (alvo && alvo.closest && alvo.closest('.alim-wrap')) return;
+  fecharSugestoes();
+});
+
+// Pagination by dragging: the next page is fetched near the bottom of a list.
+document.addEventListener('scroll', ev => {
+  const t = ev.target;
+  if (!t) return;
+  if (t.id === 'alimSug') {
+    if (sugState.temMais && !sugState.carregando && semFim(t)) {
+      carregarSugestoes(false).catch(err => console.error('Erro ao carregar sugestões:', err));
+    }
+    return;
+  }
+  if (t.id === 'alimCatLista') {
+    if (catState.temMais && !catState.carregando && semFim(t)) {
+      carregarCatalogo(false).catch(err => console.error('Erro ao carregar catálogo:', err));
+    }
+  }
+}, true);
+
+// The drop-down height depends on the space left above the "Adicionar" button.
+window.addEventListener('resize', () => {
+  if (sugState.aberto) ajustarAlturaPop();
+});
+
 /* --- Navigation between exercises (buttons, swipe, keyboard) --- */
 
 /**
@@ -1891,8 +2245,21 @@ document.addEventListener('touchend', e => {
 }, { passive: true });
 
 document.addEventListener('keydown', e => {
-  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
   const t = document.activeElement;
+
+  if (e.key === 'Escape' && sugState.aberto) {
+    fecharSugestoes();
+    if (t && t.id === 'alimNome') t.blur();
+    return;
+  }
+
+  if (e.key === 'Enter' && t && t.id === 'alimNome' && sugState.aberto && sugState.itens.length) {
+    e.preventDefault();
+    escolherSugestao(sugState.itens[0].exibicao || sugState.itens[0].nome || '');
+    return;
+  }
+
+  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
   if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
   moverEx(e.key === 'ArrowLeft' ? -1 : 1);
 });

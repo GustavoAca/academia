@@ -892,6 +892,50 @@ async function deleteFoodEntry(id) {
 }
 
 /**
+ * Get a single food entry by id.
+ * @param {number} id
+ * @returns {Promise<Object|null>}
+ */
+async function getFoodEntry(id) {
+  const database = await initDB();
+  const transaction = database.transaction('food_entries', 'readonly');
+  const request = transaction.objectStore('food_entries').get(id);
+
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Update parts of an existing food entry, keeping the original fields.
+ * @param {number} id
+ * @param {Object} updates - partial entry ({ gramas, calorias, kcal100, ... })
+ * @returns {Promise<Object>} the merged record
+ */
+async function updateFoodEntry(id, updates) {
+  const database = await initDB();
+  const transaction = database.transaction('food_entries', 'readwrite');
+  const store = transaction.objectStore('food_entries');
+
+  return new Promise((resolve, reject) => {
+    const request = store.get(id);
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const atual = request.result;
+      if (!atual) {
+        reject(new Error('Registro não encontrado'));
+        return;
+      }
+      const record = { ...atual, ...updates, id: atual.id, updatedAt: new Date().toISOString() };
+      const put = store.put(record);
+      put.onerror = () => reject(put.error);
+      put.onsuccess = () => resolve(record);
+    };
+  });
+}
+
+/**
  * Create or update a catalog food identified by its lowercase name.
  * @param {Object} food - { nome, exibicao, vezes, ultimoGramas, ultimoCalorias }
  * @returns {Promise<Object>} the saved food with id
@@ -1078,6 +1122,8 @@ export {
   addFoodEntry,
   getFoodEntriesByDate,
   getAllFoodEntries,
+  getFoodEntry,
+  updateFoodEntry,
   deleteFoodEntry,
   upsertFood,
   getFoodByNome,

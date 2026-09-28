@@ -67,3 +67,18 @@ svg.gr{width:100%;height:auto;display:block}
 .frm input:focus,.sel:focus{outline:none;border-color:var(--ac);box-shadow:0 0 0 3px var(--acs)}
 .hbar{display:grid;grid-template-columns:96px 1fr 40px;gap:8px;align-items:center;font-size:13px;margin:6px 0}
 .hbar i{display:block;height:10px;border-radius:6px;background:var(--ac)}.hbar span:last-child{text-align:right;color:var(--mut)}
+
+/* --- Alimentação: lista suspensa do campo Alimento --- */
+.alim-wrap{position:relative;grid-column:1/-1}
+.pop{position:absolute;top:calc(100% + 6px);left:0;right:0;z-index:30;max-height:min(46vh,300px);overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 14px 30px rgba(0,0,0,.18)}
+.pop[hidden]{display:none}
+.pop .li{margin:0;border:0;border-bottom:1px solid var(--line);border-radius:0;padding:11px 12px;cursor:pointer;background:var(--card)}
+.pop .li:last-child{border-bottom:0}
+.pop .li:active{background:var(--bg)}
+.pop .meta{padding:12px}
+
+/* --- Alimentação: lista rolável do catálogo (sem barra de rolagem) --- */
+.lista-scroll{max-height:340px;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.pop,.lista-scroll{scrollbar-width:none;-ms-overflow-style:none}
+.pop::-webkit-scrollbar,.lista-scroll::-webkit-scrollbar{width:0;height:0;display:none}
+.lista-scroll .li:last-child{margin-bottom:0}

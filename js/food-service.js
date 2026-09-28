@@ -12,6 +12,8 @@ import {
   addFoodEntry,
   getFoodEntriesByDate,
   getAllFoodEntries,
+  getFoodEntry,
+  updateFoodEntry,
   deleteFoodEntry,
   upsertFood,
   getFoodByNome,
@@ -31,9 +33,14 @@ const REFEICOES_PADRAO = [
 const CHAVE_REFEICOES = 'refeicoes';
 const CHAVE_META = 'metaCalorias';
 
+/** Page size shared by the food suggestion lists (type-ahead and catalog). */
+const TAM_PAGINA = 15;
+
 const DATA_RE = /^\d{4}-\d{2}-\d{2}$/;
 const r1 = n => Math.round(Number(n) * 10) / 10;
 const num = v => Number(String(v == null ? '' : v).replace(',', '.'));
+const chaveDe = s => String(s == null ? '' : s).trim().toLowerCase();
+const normTexto = s => chaveDe(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
 /* --- Refeições --- */
 
@@ -253,12 +260,121 @@ async function removerItem(id) {
   await deleteFoodEntry(id);
 }
 
+/**
+ * Keep the "last used" fields of a catalog food in sync when its newest entry
+ * is edited. Never touches the calorie reference or the usage count.
+ * @param {string} chave - lowercase food key
+ * @param {Object} entry - the edited entry (before the update)
+ * @param {Object} novos - { gramas, calorias, kcal100 } after the edit
+ */
+async function atualizarUltimosDoCatalogo(chave, entry, novos) {
+  if (!chave) return;
+
+  const todos = await getAllFoodEntries();
+  const ultimo = todos.find(i => chaveDe(i.alimento) === chave);
+  if (!ultimo || ultimo.id !== entry.id) return;
+
+  const base = await getFoodByNome(chave);
+  // The reference per 100 g only changes in the "Alimentos por 100 g" screen.
+  const ref = base && base.kcal100 !== undefined ? base.kcal100 : novos.kcal100;
+
+  await upsertFood({
+    nome: chave,
+    exibicao: base && base.exibicao ? base.exibicao : entry.alimento,
+    vezes: base ? (base.vezes || 0) : 0,
+    ultimoGramas: novos.gramas !== null && novos.gramas > 0
+      ? novos.gramas
+      : (base && base.ultimoGramas !== undefined ? base.ultimoGramas : null),
+    ultimoCalorias: novos.calorias,
+    kcal100: ref === undefined ? null : ref
+  });
+}
+
+/**
+ * Change the grams and/or the calories of a day's item without removing it.
+ * With a calorie reference (catalog first, then the entry's own) the calories
+ * are recalculated from the grams; otherwise the typed calories are used.
+ * @param {number} id - food entry id
+ * @param {Object} p - { gramas, calorias } (null/undefined keeps the current value)
+ * @returns {Promise<Object>} the updated entry
+ */
+async function editarItem(id, p) {
+  const atual = await getFoodEntry(id);
+  if (!atual) throw new Error('Registro não encontrado');
+
+  const gramasRaw = p && p.gramas !== undefined && p.gramas !== null ? String(p.gramas).trim() : null;
+  const caloriasRaw = p && p.calorias !== undefined && p.calorias !== null ? String(p.calorias).trim() : null;
+
+  const chave = chaveDe(atual.alimento);
+  const cat = chave ? await getFoodByNome(chave) : null;
+  const kcal100 = cat && isFinite(Number(cat.kcal100)) && Number(cat.kcal100) > 0
+    ? r1(cat.kcal100)
+    : (isFinite(Number(atual.kcal100)) && Number(atual.kcal100) > 0 ? r1(atual.kcal100) : null);
+
+  let gramas = atual.gramas === undefined ? null : atual.gramas;
+  if (gramasRaw === '') gramas = null;
+  else if (gramasRaw !== null) {
+    gramas = num(gramasRaw);
+    if (!isFinite(gramas) || gramas <= 0) throw new Error('Gramas inválidas');
+    gramas = r1(gramas);
+  }
+
+  let calorias;
+  if (kcal100 !== null) {
+    if (gramas === null) throw new Error('Informe as gramas');
+    calorias = r1(gramas * kcal100 / 100);
+  } else {
+    const raw = caloriasRaw !== null
+      ? caloriasRaw
+      : String(atual.calorias === undefined || atual.calorias === null ? '' : atual.calorias);
+    if (raw === '') throw new Error('Informe as calorias');
+    calorias = r1(num(raw));
+    if (!isFinite(calorias) || calorias < 0) throw new Error('Calorias inválidas');
+  }
+
+  const salvo = await updateFoodEntry(id, {
+    gramas,
+    calorias,
+    kcal100: kcal100 !== null ? kcal100 : (gramas !== null ? r1(calorias / gramas * 100) : null)
+  });
+
+  await atualizarUltimosDoCatalogo(chave, atual, { gramas, calorias, kcal100 });
+
+  return salvo;
+}
+
 async function getItensDoDia(data) {
   return getFoodEntriesByDate(data);
 }
 
 async function getCatalogo() {
   return getAllFoods();
+}
+
+/**
+ * Page through the food catalog, filtering by name (accent and case
+ * insensitive) and ranking the most used foods first.
+ * @param {string} termo - name fragment; empty lists everything
+ * @param {number} offset - how many results to skip
+ * @param {number} [limite] - page size (defaults to TAM_PAGINA)
+ * @returns {Promise<{itens: Array, temMais: boolean, total: number}>}
+ */
+async function buscarCatalogo(termo, offset, limite) {
+  const ini = Math.max(0, Number(offset) || 0);
+  const tam = Math.max(1, Number(limite) || TAM_PAGINA);
+  const t = normTexto(termo);
+
+  const todos = (await getAllFoods()).slice().sort((a, b) =>
+    (b.vezes || 0) - (a.vezes || 0) ||
+    chaveDe(a.exibicao || a.nome).localeCompare(chaveDe(b.exibicao || b.nome))
+  );
+  const filtrados = t ? todos.filter(f => normTexto(f.exibicao || f.nome).includes(t)) : todos;
+
+  return {
+    itens: filtrados.slice(ini, ini + tam),
+    temMais: ini + tam < filtrados.length,
+    total: filtrados.length
+  };
 }
 
 /* --- Relatórios --- */
@@ -415,10 +531,13 @@ export {
   salvarMeta,
   adicionarItem,
   removerItem,
+  editarItem,
   buscarAlimento,
   salvarReferencia,
   getItensDoDia,
   getCatalogo,
+  buscarCatalogo,
+  TAM_PAGINA,
   resumoDoDia,
   historicoCalorias,
   distribuicaoRefeicao,
