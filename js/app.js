@@ -119,6 +119,7 @@ const state = {
   lista: false,   // list view instead of the set card
   md: hojeISO(),  // date selected in the Medidas screen
   alim: hojeISO(),// date selected in the Alimentação screen
+  alimRef: null,   // meal selected in the Alimentação screen (null = use the time-based suggestion)
   m: 'peso',      // metric selected in the report chart
   p: 30,          // period (days) of the food reports
   alimEdit: null,   // id of the day's item being edited (Alimentação screen)
@@ -1228,8 +1229,8 @@ async function telaAlimentacao() {
     <span>${esc(r.nome)}</span><span><i style="width:${(r.total / maxRef * 100).toFixed(0)}%;background:${r.total ? 'var(--ac)' : 'var(--line)'}"></i></span>
     <span style="white-space:nowrap">${f1(r.total)} kcal</span></div>`).join('');
 
-  const opts = refeicoes.map(r => `<option value="${r.id}">${esc(r.nome)}</option>`).join('');
-  const sugerida = refeicaoSugerida(refeicoes);
+  if (!refeicoes.some(r => r.id === state.alimRef)) state.alimRef = refeicaoSugerida(refeicoes);
+  const opts = refeicoes.map(r => `<option value="${r.id}"${r.id === state.alimRef ? ' selected' : ''}>${esc(r.nome)}</option>`).join('');
   const chips = primeira.itens.slice(0, 12).map(f => {
     const g = f.ultimoGramas === null || f.ultimoGramas === undefined ? '' : String(f.ultimoGramas).replace('.', ',');
     const c = f.ultimoCalorias === null || f.ultimoCalorias === undefined ? '' : String(f.ultimoCalorias).replace('.', ',');
@@ -1256,7 +1257,7 @@ async function telaAlimentacao() {
   <div class="card sec"><h2>Registrar</h2>
     <div class="sub">Com a referência de 100 g, digite só as gramas — as calorias vêm na conversão.</div>
     <div class="frm">
-      <div style="grid-column:1/-1"><label>Refeição</label><select class="sel" id="alimRef" aria-label="Refeição">${opts.replace(`value="${sugerida}"`, `value="${sugerida}" selected`)}</select></div>
+      <div style="grid-column:1/-1"><label>Refeição</label><select class="sel" id="alimRef" data-k="alimref" aria-label="Refeição">${opts}</select></div>
       <div class="alim-wrap">
         <label>Alimento</label>
         <input id="alimNome" data-k="alimNome" placeholder="ex.: Frango grelhado" aria-label="Alimento" autocomplete="off" enterkeyhint="next" aria-autocomplete="list" aria-expanded="false">
@@ -1711,6 +1712,11 @@ document.addEventListener('change', async ev => {
   if (k === 'ctipo') {
     const outro = document.getElementById('cardioOutro');
     if (outro) outro.style.display = el.value === '__outro' ? '' : 'none';
+  }
+
+  if (k === 'alimref') {
+    state.alimRef = el.value;
+    return;
   }
 
   if (k === 'alimmeta') {
