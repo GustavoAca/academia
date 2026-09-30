@@ -717,7 +717,7 @@ async function deleteMeasurementByDate(data) {
  * The lookup and the write happen in a single transaction, so logging the
  * same activity in the same slot (start/end) of the same day updates the
  * time instead of duplicating. Legacy records without `momento` count as 'f'.
- * @param {Object} cardio - { data, tipo, minutos, momento?, observacao? }
+ * @param {Object} cardio - { data, tipo, minutos, momento?, distancia?, calorias?, observacao? }
  * @returns {Promise<void>}
  */
 async function upsertCardio(cardio) {

@@ -20,7 +20,9 @@ import { diaAtivo, nomeDoDia, cardioDoDia } from '../rotina-service.js';
 import { saveSetting } from '../db.js';
 import {
   TIPOS_CARDIO,
+  TIPOS_COM_DISTANCIA,
   adicionarCardio,
+  paceDe,
   getPulados,
   setPulado,
   getCardiosByDate,
@@ -142,7 +144,7 @@ async function cardEx(ei) {
 }
 
 /** Card of a cardio step (start/end of the day). */
-async function cardPassoCardio(m, pulados, cardiosDia) {
+export async function cardPassoCardio(m, pulados, cardiosDia) {
   const slot = m === 'i' ? 'i' : 'f';
   const dia = DIAS[state.d];
   const cfg = cardioDoDia(store.rotina, dia, slot);
@@ -160,18 +162,32 @@ async function cardPassoCardio(m, pulados, cardiosDia) {
   const lista = cardiosDia.filter(x => (x.momento || 'f') === slot);
   const total = lista.reduce((a, x) => a + (Number(x.minutos) || 0), 0);
 
-  const itens = lista.map(x => `<div class="li"><span class="n"><b>${esc(x.tipo)}</b><small>${f1(Number(x.minutos) || 0)} min</small></span>
-    <button class="btn" style="width:40px;height:40px;flex:none" data-a="cremover" data-v="${x.id}" aria-label="Remover cardio">×</button></div>`).join('');
+  const itens = lista.map(x => {
+    const partes = [`${f1(Number(x.minutos) || 0)} min`];
+    if (x.distancia) partes.push(`${Number(x.distancia).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} km`);
+    const pace = paceDe(x.minutos, x.distancia);
+    if (pace) partes.push(`${pace} /km`);
+    if (x.calorias) partes.push(`${Math.round(x.calorias)} kcal`);
+    const obs = x.observacao ? `<small>${esc(x.observacao)}</small>` : '';
+    return `<div class="li"><span class="n"><b>${esc(x.tipo)}</b><small>${partes.join(' · ')}</small>${obs}</span>
+    <button class="btn" style="width:40px;height:40px;flex:none" data-a="cremover" data-v="${x.id}" aria-label="Remover cardio">×</button></div>`;
+  }).join('');
 
   const tipos = TIPOS_CARDIO.map(t => `<option value="${esc(t)}" ${cfg.tipo === t ? 'selected' : ''}>${esc(t)}</option>`).join('');
+  const temDist = TIPOS_COM_DISTANCIA.includes(cfg.tipo);
 
   return `<div class="card sec" data-cbar="${slot}"><h2>${rotulo}</h2>
     <div class="sub">${fmt(dataDe(state.s, state.d))} · ${f1(total)} min ${slot === 'i' ? 'antes' : 'depois'} dos exercícios</div>
     ${itens}
     <div class="frm" style="margin-top:10px">
       <div><label>Atividade</label><select class="sel" data-k="ctipo" data-m="${slot}" id="cardioTipo" aria-label="Atividade">${tipos}<option value="__outro">Outro…</option></select></div>
-      <div><label>Tempo (min)</label><input inputmode="decimal" id="cardioMin" value="${esc(cfg.min)}" placeholder="ex.: 30" aria-label="Minutos de cardio"></div>
+      <div><label>Tempo (min)</label><input inputmode="decimal" data-k="ctempo" id="cardioMin" value="${esc(cfg.min)}" placeholder="ex.: 30" aria-label="Minutos de cardio"></div>
+      <div id="cardioDistWrap" ${temDist ? '' : 'style="display:none"'}><label>Distância (km)</label><input inputmode="decimal" data-k="cdist" id="cardioDist" placeholder="ex.: 5" aria-label="Distância em quilômetros"></div>
+      <div><label>Calorias (kcal)</label><input inputmode="numeric" id="cardioKcal" placeholder="ex.: 350" aria-label="Calorias queimadas"></div>
     </div>
+    <div class="sub" id="cardioPace" style="display:none" aria-live="polite"></div>
+    <label style="font-size:12px;color:var(--mut)">Observação</label>
+    <textarea rows="2" id="cardioObs" placeholder="Como foi? Esforço, trajeto, sensações..."></textarea>
     <div id="cardioOutro" style="display:none">
       <label style="font-size:12px;color:var(--mut)">Qual atividade?</label>
       <input class="sel" id="cardioOutroNome" placeholder="ex.: Futebol" aria-label="Nome da atividade">
@@ -179,6 +195,27 @@ async function cardPassoCardio(m, pulados, cardiosDia) {
     <div class="acoes"><button class="btn p" data-a="cadicionar" data-m="${slot}">Adicionar cardio</button>
       <button class="btn" data-a="cpular" data-m="${slot}">Pular</button></div>
   </div>`;
+}
+
+/** Is the distance field of the cardio card currently visible? */
+function distVisivel() {
+  const wrap = document.getElementById('cardioDistWrap');
+  return !!wrap && wrap.style.display !== 'none';
+}
+
+/**
+ * Live pace preview of the cardio form: updates only #cardioPace, never
+ * re-renders (a re-render would wipe what the user typed). Pace needs both
+ * time and distance — missing either hides the preview.
+ */
+export function atualizarPaceCardio() {
+  const out = document.getElementById('cardioPace');
+  if (!out) return;
+  const min = document.getElementById('cardioMin');
+  const dist = document.getElementById('cardioDist');
+  const pace = distVisivel() && min && dist ? paceDe(min.value, dist.value) : null;
+  out.style.display = pace ? '' : 'none';
+  out.textContent = pace ? `Pace: ${pace} /km` : '';
 }
 
 /** Paint the progress bar and the "x/y séries" line of the header. */
@@ -220,8 +257,19 @@ export async function aoClicar(a, b) {
     const outro = document.getElementById('cardioOutroNome');
     const tipo = sel && sel.value !== '__outro' ? sel.value : ((outro && outro.value) || '');
     const minutos = (document.getElementById('cardioMin') || {}).value || '';
+    const distancia = distVisivel() ? ((document.getElementById('cardioDist') || {}).value || '') : '';
+    const calorias = (document.getElementById('cardioKcal') || {}).value || '';
+    const observacao = (document.getElementById('cardioObs') || {}).value || '';
     try {
-      await adicionarCardio({ data: iso(dataDe(state.s, state.d)), tipo, minutos, momento: m });
+      await adicionarCardio({
+        data: iso(dataDe(state.s, state.d)),
+        tipo,
+        minutos,
+        distancia,
+        calorias,
+        observacao,
+        momento: m
+      });
       await render();
       aviso('Cardio registrado ✓');
     } catch (err) {
@@ -346,6 +394,11 @@ export async function aoDigitar(el) {
     return true;
   }
 
+  if (k === 'ctempo' || k === 'cdist') {
+    atualizarPaceCardio();
+    return true;
+  }
+
   const set = el.closest ? el.closest('.set') : null;
   if (!set) return false;
 
@@ -368,6 +421,9 @@ export async function aoMudar(el) {
   if (el.dataset.k !== 'ctipo') return false;
   const outro = document.getElementById('cardioOutro');
   if (outro) outro.style.display = el.value === '__outro' ? '' : 'none';
+  const dist = document.getElementById('cardioDistWrap');
+  if (dist) dist.style.display = TIPOS_COM_DISTANCIA.includes(el.value) ? '' : 'none';
+  atualizarPaceCardio();
   return true;
 }
 
