@@ -20,6 +20,7 @@ import {
 import { MED, num, saveMeasurements } from '../measurement-service.js';
 import { getRotina, sincronizarCatalogo } from '../rotina-service.js';
 import { exportBackup, importBackup, downloadBackup } from '../backup-service.js';
+import { backfillMacros } from '../food-service.js';
 import { loadCatalogo, posicaoInicial } from './programa.js';
 import { carregarLogDoDia } from './log-dia.js';
 import { render } from './render.js';
@@ -215,6 +216,13 @@ export async function atualizarAposImportacao() {
 
   await loadCatalogo();
   await carregarLogDoDia();
+  // Registros antigos vindos do backup ganham os macros pelas referências
+  // do catálogo antes de a tela ser pintada.
+  try {
+    await backfillMacros();
+  } catch (err) {
+    console.warn('Backfill de macros:', err.message);
+  }
   await render();
 }
 

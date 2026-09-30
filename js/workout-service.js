@@ -721,6 +721,10 @@ async function importData(backupData, overwrite = false) {
         stats.metaCalorias = 1;
       }
     }
+    if (backupData.metaMacros && typeof backupData.metaMacros === 'object') {
+      await saveSetting('metaMacros', backupData.metaMacros);
+      stats.metaMacros = 1;
+    }
     if (backupData.cardioPulados && typeof backupData.cardioPulados === 'object') {
       await saveSetting('cardioPulados', backupData.cardioPulados);
       stats.cardioPulados = 1;

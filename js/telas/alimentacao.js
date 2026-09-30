@@ -12,12 +12,15 @@ import {
   removerRefeicao,
   getMeta,
   salvarMeta,
+  salvarMetaMacros,
   adicionarItem,
   removerItem,
   editarItem,
   buscarAlimento,
   salvarReferencia,
   buscarCatalogo,
+  kcalDosMacros,
+  porcaoDe,
   TAM_PAGINA,
   resumoDoDia
 } from '../food-service.js';
@@ -26,6 +29,50 @@ import { registrarTela } from '../core/rotas.js';
 import { aviso } from '../core/toast.js';
 
 /* --- Paginated suggestion lists (type-ahead of the Alimento field + catalog) --- */
+
+/** True when a per-100 g reference (kcal or macro) has a usable number. */
+const temRef = v => v !== null && v !== undefined && v !== '' && isFinite(Number(String(v).replace(',', '.')));
+
+/** Compact "P31 C0 G3,6" suffix of a food's per-100 g macro references. */
+function macros100Txt(f) {
+  const partes = [];
+  if (temRef(f.prot100)) partes.push(`P${f1(f.prot100)}`);
+  if (temRef(f.carb100)) partes.push(`C${f1(f.carb100)}`);
+  if (temRef(f.gord100)) partes.push(`G${f1(f.gord100)}`);
+  return partes.join(' ');
+}
+
+/** Macro line of a portion: " · P 46,5 g · C 0 g · G 8 g". */
+function macroPorcaoTxt(f, gramas) {
+  const partes = [];
+  [['P', f.prot100], ['C', f.carb100], ['G', f.gord100]].forEach(([rot, ref]) => {
+    const g = porcaoDe(ref, gramas);
+    if (g !== null) partes.push(`${rot} ${f1(g)} g`);
+  });
+  return partes.length ? ' · ' + partes.join(' · ') : '';
+}
+
+/** Macro line of a logged entry (values already in grams). */
+function macrosItemTxt(i) {
+  const partes = [];
+  if (temRef(i.prot)) partes.push(`P ${f1(i.prot)} g`);
+  if (temRef(i.carb)) partes.push(`C ${f1(i.carb)} g`);
+  if (temRef(i.gord)) partes.push(`G ${f1(i.gord)} g`);
+  return partes.length ? ' · ' + partes.join(' · ') : '';
+}
+
+/** Message when kcal/100 g differs from the 4/4/9 sum of the macros (>10%). */
+function divergenciaKcal(f) {
+  const derivada = kcalDosMacros(f);
+  if (derivada === null || !temRef(f.kcal100)) return null;
+  const kcal = Number(String(f.kcal100).replace(',', '.'));
+  return Math.abs(derivada - kcal) <= kcal * 0.1
+    ? null
+    : `os macros somam ${f1(derivada)} kcal/100 g — confira as referências`;
+}
+
+/** data-k of the catalog reference inputs → the field it edits. */
+const CAMPOS_REFERENCIA = { alkcal: 'kcal100', alprot: 'prot100', alcarb: 'carb100', algord: 'gord100' };
 
 export function novaLista() {
   return { termo: '', offset: 0, itens: [], temMais: false, total: 0, carregando: false, pronto: false, aberto: false, seq: 0 };
@@ -58,16 +105,25 @@ function linhaSugestao(f) {
   const ref = f.kcal100 !== null && f.kcal100 !== undefined && Number(f.kcal100) > 0
     ? `${f1(f.kcal100)} kcal/100 g`
     : 'sem referência';
+  const macros = macros100Txt(f);
   const usos = `${f.vezes || 0} registro${(f.vezes || 0) === 1 ? '' : 's'}`;
-  return `<button type="button" class="li" data-a="alimsel" data-n="${esc(nome)}"><span class="n"><b>${esc(nome)}</b><small>${ref} · ${usos}</small></span></button>`;
+  return `<button type="button" class="li" data-a="alimsel" data-n="${esc(nome)}"><span class="n"><b>${esc(nome)}</b><small>${ref}${macros ? ' · ' + macros : ''} · ${usos}</small></span></button>`;
 }
 
 function linhaCatalogo(f) {
   const nome = f.exibicao || f.nome || '';
-  return `<div class="li" style="padding:8px 10px">
-    <span class="n"><b>${esc(nome)}</b><small>${f.vezes || 0} registro${(f.vezes || 0) === 1 ? '' : 's'}</small></span>
-    <input class="sel" data-k="alkcal" data-n="${esc(f.nome)}" inputmode="decimal" value="${f.kcal100 === null || f.kcal100 === undefined ? '' : String(f.kcal100).replace('.', ',')}" placeholder="?" style="width:88px;flex:none;height:40px;text-align:center" aria-label="Calorias por 100 g de ${esc(nome)}">
-    <span style="font-size:12px;color:var(--mut);white-space:nowrap">kcal/100 g</span></div>`;
+  const inp = (k, v, rot) => `<input class="sel" data-k="${k}" data-n="${esc(f.nome)}" inputmode="decimal" value="${temRef(v) ? String(v).replace('.', ',') : ''}" placeholder="?" style="width:64px;flex:none;height:34px;text-align:center;font-size:13px" aria-label="${rot} por 100 g de ${esc(nome)}">`;
+  const macro = (k, v, letra, rot) => `<span style="font-size:11px;color:var(--mut);white-space:nowrap">${letra}</span>${inp(k, v, rot)}`;
+  return `<div class="li" style="padding:8px 10px;flex-wrap:wrap;row-gap:6px">
+    <span class="n" style="flex:1;min-width:120px"><b>${esc(nome)}</b><small>${f.vezes || 0} registro${(f.vezes || 0) === 1 ? '' : 's'}</small></span>
+    ${inp('alkcal', f.kcal100, 'Calorias')}
+    <span style="font-size:12px;color:var(--mut);white-space:nowrap">kcal/100 g</span>
+    <div style="display:flex;gap:6px;align-items:center;width:100%;flex-wrap:wrap">
+      <span style="font-size:11px;color:var(--mut);white-space:nowrap">g/100 g:</span>
+      ${macro('alprot', f.prot100, 'Prot', 'Proteína')}
+      ${macro('alcarb', f.carb100, 'Carb', 'Carboidrato')}
+      ${macro('algord', f.gord100, 'Gord', 'Gordura')}
+    </div></div>`;
 }
 
 export function htmlSugestoes() {
@@ -263,17 +319,20 @@ export async function atualizarAlimAuto(prefill) {
 
   if (g > 0) {
     kEl.value = String(r1n(g * f.kcal100 / 100)).replace('.', ',');
-    hint.textContent = `${f.exibicao}: ${f1(f.kcal100)} kcal por 100 g · ${f1(g)} g → ${f1(Number(String(kEl.value).replace(',', '.')) || 0)} kcal`;
+    hint.textContent = `${f.exibicao}: ${f1(f.kcal100)} kcal por 100 g · ${f1(g)} g → ${f1(Number(String(kEl.value).replace(',', '.')) || 0)} kcal${macroPorcaoTxt(f, g)}`;
+    const div = divergenciaKcal(f);
+    if (div) hint.textContent += ` · ⚠ ${div}`;
   } else {
     kEl.value = '';
-    hint.textContent = `${f.exibicao}: ${f1(f.kcal100)} kcal por 100 g · digite as gramas`;
+    const m100 = macros100Txt(f);
+    hint.textContent = `${f.exibicao}: ${f1(f.kcal100)} kcal por 100 g${m100 ? ` · ${m100}` : ''} · digite as gramas`;
   }
 }
 /** Row of a day's item: read mode (edit/remove) or inline editor. */
 function linhaItemDia(i) {
   const gramas = i.gramas !== null && i.gramas !== undefined ? f1(i.gramas) + ' g · ' : '';
   if (state.alimEdit !== i.id) {
-    return `<div class="li"><span class="n"><b>${esc(i.alimento)}</b><small>${gramas}${f1(i.calorias)} kcal</small></span>
+    return `<div class="li"><span class="n"><b>${esc(i.alimento)}</b><small>${gramas}${f1(i.calorias)} kcal${macrosItemTxt(i)}</small></span>
       <button class="btn" style="width:40px;height:40px;flex:none" data-a="ialimedit" data-v="${i.id}" data-n="${esc(i.alimento)}" data-r="${i.kcal100 === null || i.kcal100 === undefined ? '' : i.kcal100}" aria-label="Editar item ${esc(i.alimento)}">✎</button>
       <button class="btn" style="width:40px;height:40px;flex:none" data-a="iremoveralim" data-v="${i.id}" aria-label="Remover item">×</button></div>`;
   }
@@ -328,6 +387,20 @@ export async function telaAlimentacao() {
   const pct = meta ? Math.min(100, resumoDia.total / meta * 100) : 0;
   const kp = (b, s) => `<div class="kpi"><b>${b}</b><small>${s}</small></div>`;
 
+  const mm = resumoDia.metaMacros || { prot: null, carb: null, gord: null };
+  const mv = resumoDia.macros || { prot: 0, carb: 0, gord: 0 };
+  const macroLinha = (rot, chave) => {
+    const val = Number(mv[chave]) || 0;
+    const alvo = mm[chave];
+    if (!(alvo > 0)) return '';
+    const mpct = Math.min(100, val / alvo * 100);
+    return `<div class="hbar"><span>${rot}</span><span><i style="width:${mpct.toFixed(0)}%;background:${val >= alvo ? 'var(--ok)' : 'var(--ac)'}"></i></span>
+      <span style="white-space:nowrap">${f1(val)}/${f1(alvo)} g</span></div>`;
+  };
+  const macroVal = chave => (mm[chave] !== null && mm[chave] !== undefined ? String(mm[chave]).replace('.', ',') : '');
+  const macrosHtml = [macroLinha('Proteína', 'prot'), macroLinha('Carboidrato', 'carb'), macroLinha('Gordura', 'gord')].join('') ||
+    `<div class="meta">Proteína ${f1(mv.prot)} g · Carboidrato ${f1(mv.carb)} g · Gordura ${f1(mv.gord)} g — defina as metas acima para acompanhar o progresso.</div>`;
+
   const terceiro = falta === null
     ? kp('—', 'defina uma meta diária')
     : falta >= 0
@@ -361,11 +434,18 @@ export async function telaAlimentacao() {
     <div class="kpis">${kp(f1(resumoDia.total), 'kcal no dia')}${kp(meta !== null ? f1(meta) + ' kcal' : '—', 'meta diária')}${terceiro}</div>
     ${meta !== null ? `<div class="bar"><i style="width:${pct.toFixed(0)}%;background:${excedeu ? 'var(--warn)' : 'var(--ok)'}"></i></div>` : ''}
     <div class="frm" style="margin-top:12px"><div><label>Meta diária (kcal)</label><input data-k="alimmeta" inputmode="decimal" value="${meta !== null ? String(meta).replace('.', ',') : ''}" placeholder="ex.: 2200" aria-label="Meta calórica diária"></div></div>
+    <div class="frm" style="grid-template-columns:1fr 1fr 1fr">
+      <div><label>Proteína (g)</label><input id="alimMetaProt" data-k="alimmetaprot" inputmode="decimal" value="${macroVal('prot')}" placeholder="ex.: 130" aria-label="Meta diária de proteína em gramas"></div>
+      <div><label>Carbo (g)</label><input id="alimMetaCarb" data-k="alimmetacarb" inputmode="decimal" value="${macroVal('carb')}" placeholder="ex.: 250" aria-label="Meta diária de carboidrato em gramas"></div>
+      <div><label>Gordura (g)</label><input id="alimMetaGord" data-k="alimmetagord" inputmode="decimal" value="${macroVal('gord')}" placeholder="ex.: 70" aria-label="Meta diária de gordura em gramas"></div>
+    </div>
+    <div class="sub" style="margin-top:12px">Macros do dia</div>
+    ${macrosHtml}
     <div class="sub" style="margin-top:12px">Calorias por refeição</div>${porRef}
   </div>
 
   <div class="card sec"><h2>Registrar</h2>
-    <div class="sub">Com a referência de 100 g, digite só as gramas — as calorias vêm na conversão.</div>
+    <div class="sub">Com a referência de 100 g, digite só as gramas — calorias e macros vêm na conversão.</div>
     <div class="frm">
       <div style="grid-column:1/-1"><label>Refeição</label><select class="sel" id="alimRef" data-k="alimref" aria-label="Refeição">${opts}</select></div>
       <div class="alim-wrap">
@@ -384,12 +464,15 @@ export async function telaAlimentacao() {
   <div class="card sec"><h2>Itens do dia</h2>${grupos}</div>
 
   <div class="card sec"><h2>Alimentos por 100 g</h2>
-    <div class="sub">A referência de calorias a cada 100 g de cada alimento. Salvar um item nunca altera este valor — ele só muda aqui.</div>
+    <div class="sub">As referências por 100 g de cada alimento: calorias e macros (P, C e G). Salvar um item nunca altera estes valores — eles só mudam aqui.</div>
     <input class="sel" id="alimCatBusca" data-k="alimcatbusca" placeholder="Buscar alimento…" aria-label="Buscar alimento por 100 g" autocomplete="off" style="margin-bottom:10px">
     <div id="alimCatLista" class="lista-scroll">${htmlCatalogo()}</div>
     <div class="frm" style="margin-top:8px">
       <div style="grid-column:1/-1"><label>Novo alimento</label><input id="alimAlNovo" placeholder="ex.: Iogurte natural" aria-label="Novo alimento"></div>
       <div><label>Calorias por 100 g</label><input id="alimKcalNovo" inputmode="decimal" placeholder="ex.: 60" aria-label="Calorias por 100 gramas"></div>
+      <div><label>Proteína (g/100 g)</label><input id="alimProtNovo" inputmode="decimal" placeholder="ex.: 20" aria-label="Proteína por 100 gramas"></div>
+      <div><label>Carboidrato (g/100 g)</label><input id="alimCarbNovo" inputmode="decimal" placeholder="ex.: 4" aria-label="Carboidrato por 100 gramas"></div>
+      <div><label>Gordura (g/100 g)</label><input id="alimGordNovo" inputmode="decimal" placeholder="ex.: 9" aria-label="Gordura por 100 gramas"></div>
     </div>
     <div class="acoes"><button class="btn" data-a="alrefadd">Adicionar alimento</button></div>
   </div>
@@ -530,11 +613,25 @@ export async function aoClicar(a, b) {
 
   if (a === 'alrefadd') {
     const alNovo = document.getElementById('alimAlNovo');
-    const kcalNovo = document.getElementById('alimKcalNovo');
     try {
-      await salvarReferencia(alNovo && alNovo.value, kcalNovo && kcalNovo.value);
+      const nome = alNovo && alNovo.value;
+      const campos = [
+        ['kcal100', (document.getElementById('alimKcalNovo') || {}).value],
+        ['prot100', (document.getElementById('alimProtNovo') || {}).value],
+        ['carb100', (document.getElementById('alimCarbNovo') || {}).value],
+        ['gord100', (document.getElementById('alimGordNovo') || {}).value]
+      ];
+      for (const [campo, valor] of campos) {
+        // kcal sempre passa (vazio limpa e permite derivar 4/4/9);
+        // macros só quando preenchidas (nunca apagam referências existentes)
+        if (campo === 'kcal100' || String(valor || '').trim() !== '') {
+          await salvarReferencia(nome, valor, campo);
+        }
+      }
+      const f = await buscarAlimento(nome);
+      const div = f && divergenciaKcal(f);
       await render();
-      aviso('Alimento adicionado ✓');
+      aviso(div ? `⚠ ${div}` : 'Alimento adicionado ✓');
     } catch (err) {
       aviso(err.message);
     }
@@ -583,7 +680,8 @@ export async function aoDigitar(el) {
 }
 
 /**
- * Meal select, calorie meta, meal names, food name and kcal/100 g reference.
+ * Meal select, calorie/macro targets, meal names, food name and the
+ * per-100 g references (kcal and macros) of the catalog.
  * @param {HTMLElement} el
  * @returns {Promise<boolean>}
  */
@@ -599,6 +697,21 @@ export async function aoMudar(el) {
     try {
       await salvarMeta(el.value);
       await render();
+    } catch (err) {
+      aviso(err.message);
+    }
+    return true;
+  }
+
+  if (k === 'alimmetaprot' || k === 'alimmetacarb' || k === 'alimmetagord') {
+    try {
+      await salvarMetaMacros({
+        prot: (document.getElementById('alimMetaProt') || {}).value,
+        carb: (document.getElementById('alimMetaCarb') || {}).value,
+        gord: (document.getElementById('alimMetaGord') || {}).value
+      });
+      await render();
+      aviso('Metas de macros salvas ✓');
     } catch (err) {
       aviso(err.message);
     }
@@ -621,10 +734,12 @@ export async function aoMudar(el) {
     return true;
   }
 
-  if (k === 'alkcal') {
+  if (CAMPOS_REFERENCIA[k]) {
     try {
-      await salvarReferencia(el.dataset.n, el.value);
-      aviso('Referência salva ✓');
+      await salvarReferencia(el.dataset.n, el.value, CAMPOS_REFERENCIA[k]);
+      const f = await buscarAlimento(el.dataset.n);
+      const div = f && divergenciaKcal(f);
+      aviso(div ? `⚠ ${div}` : 'Referência salva ✓');
       await atualizarAlimAuto(false);
     } catch (err) {
       aviso(err.message);

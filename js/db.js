@@ -8,8 +8,8 @@
  * - executions: id, data, treinoId, exercicioId, serie, carga, repeticoes, observacao
  * - measurements: id, data, peso, busto, abdomen, culote
  * - settings: chave, valor
- * - food_entries: id, data, refeicaoId, alimento, gramas, calorias, kcal100
- * - foods: id, nome (unique), exibicao, vezes, ultimoGramas, ultimoCalorias, kcal100
+ * - food_entries: id, data, refeicaoId, alimento, gramas, calorias, kcal100, prot, carb, gord
+ * - foods: id, nome (unique), exibicao, vezes, ultimoGramas, ultimoCalorias, kcal100, prot100, carb100, gord100
  */
 
 const DB_NAME = 'treino_pwa';

@@ -32,6 +32,7 @@ import { getAllCardios, todosPulados, paceDe } from '../cardio-service.js';
 import {
   getMeta,
   historicoCalorias,
+  historicoMacros,
   distribuicaoRefeicao,
   alimentosFrequentes,
   treinoVsDescanso,
@@ -297,13 +298,14 @@ async function cardRelAlimentacao(desde, dias) {
   const kp = (b, s) => `<div class="kpi"><b>${b}</b><small>${s}</small></div>`;
   const ate = hojeISO();
 
-  const [hist, dist, freq, vst, meta, pilhas] = await Promise.all([
+  const [hist, dist, freq, vst, meta, pilhas, macroHist] = await Promise.all([
     historicoCalorias(dias, ate),
     distribuicaoRefeicao(dias, ate),
     alimentosFrequentes(dias, ate),
     treinoVsDescanso(dias, ate),
     getMeta(),
-    historicoPorRefeicao(dias, ate)
+    historicoPorRefeicao(dias, ate),
+    historicoMacros(dias, ate)
   ]);
 
   if (!freq.length) {
@@ -339,6 +341,27 @@ async function cardRelAlimentacao(desde, dias) {
 
   const linhasFreq = freq.slice(0, 12).map(f => `<tr><td>${esc(f.nome)}</td><td>${f.vezes}</td><td>${f1(f.media)}</td><td>${f1(f.total)}</td></tr>`).join('');
 
+  const comReg = macroHist.filter(d => d.itens > 0);
+  const temMacro = macroHist.some(d => d.prot > 0 || d.carb > 0 || d.gord > 0);
+  const mediaMacro = campo => comReg.length
+    ? comReg.reduce((a, d) => a + d[campo], 0) / comReg.length
+    : 0;
+  const mp = mediaMacro('prot');
+  const mc = mediaMacro('carb');
+  const mg = mediaMacro('gord');
+  const somaKcal = mp * 4 + mc * 4 + mg * 9;
+  const pctKcal = kcal => (somaKcal ? Math.round(kcal / somaKcal * 100) : 0);
+  const maxMacro = Math.max(mp, mc, mg, 1);
+  const linhaMacro = (rot, g, kcal) => `<div class="hbar">
+    <span>${rot}</span><span><i style="width:${(g / maxMacro * 100).toFixed(0)}%"></i></span>
+    <span style="white-space:nowrap">${f1(g)} g/dia · ${pctKcal(kcal)}% das kcal</span></div>`;
+  const macrosCard = temMacro && comReg.length ? `<div class="card sec"><h2>Macros</h2>
+    <div class="sub">Média diária em dias com registro. O percentual é a participação de cada macro nas calorias (4/4/9).</div>
+    ${linhaMacro('Proteína', mp, mp * 4)}
+    ${linhaMacro('Carboidrato', mc, mc * 4)}
+    ${linhaMacro('Gordura', mg, mg * 9)}
+  </div>` : '';
+
   const maxVD = Math.max(vst.treino.media || 0, vst.descanso.media || 0, 1);
   const vd = (o, nome) => o.media === null ? '' : `<div class="hbar">
     <span>${nome}</span><span><i style="width:${(o.media / maxVD * 100).toFixed(0)}%"></i></span>
@@ -367,6 +390,8 @@ async function cardRelAlimentacao(desde, dias) {
   ${pilhasCard}
 
   <div class="card sec"><h2>Distribuição por refeição</h2><div class="sub">De onde vêm as calorias do período.</div>${linhasDist || '<div class="meta">Sem dados no período.</div>'}</div>
+
+  ${macrosCard}
 
   <div class="card sec"><h2>Alimentos mais frequentes</h2><div class="sub">O que aparece com mais frequência e quanto de calorias cada uso traz.</div>
     ${freq.length ? `<table class="tb"><tr><th style="width:46%;text-align:left">Alimento</th><th style="width:18%">Vezes</th><th style="width:18%">Média kcal</th><th style="width:18%">Total kcal</th></tr>${linhasFreq}</table>` : '<div class="meta">Sem dados no período.</div>'}</div>

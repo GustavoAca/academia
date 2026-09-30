@@ -11,6 +11,7 @@ import { initDB, getSetting } from './db.js';
 import { getRotina, sincronizarCatalogo } from './rotina-service.js';
 import { seedFromPlano } from './core/seed.js';
 import { migrateFromLocalStorage, baixarBackup } from './core/importacao.js';
+import { backfillMacros } from './food-service.js';
 import { loadCatalogo, posicaoInicial } from './core/programa.js';
 import { carregarLogDoDia, primeiroPasso } from './core/log-dia.js';
 import { render } from './core/render.js';
@@ -38,6 +39,11 @@ export async function initApp() {
     state.e = await primeiroPasso();
     await render();
     aviso('Aplicação inicializada com sucesso');
+    // Completa os macros de registros antigos sem atrasar a primeira tela;
+    // quando algo muda, a tela é pintada de novo com os valores prontos.
+    backfillMacros()
+      .then(n => (n > 0 ? render() : undefined))
+      .catch(err => console.warn('Backfill de macros:', err.message));
   } catch (err) {
     console.error('Erro ao inicializar aplicação:', err);
     aviso('Erro ao iniciar aplicação');
