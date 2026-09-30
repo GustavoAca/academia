@@ -13,64 +13,9 @@
 <body>
   <div id="app"></div>
   <div id="toast" class=""></div>
-  
-  <script>
-    // Função toast deve estar disponível globalmente
-    window.showToast = function message(message) {
-      const toast = document.getElementById('toast');
-      if (toast) {
-        toast.textContent = message;
-        toast.classList.add('show');
-        setTimeout(() => {
-          toast.classList.remove('show');
-        }, 3000);
-      }
-    };
-  </script>
-  
-  <script type="module">
-    // Importing app.js wires the module graph and starts the application
-    // (see the DOMContentLoaded/readyState check at the end of js/app.js).
-    import './js/app.js';
-  </script>
 
-  <script>
-    // Register Service Worker for PWA offline functionality
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('service-worker.js')
-          .then((registration) => {
-            console.log('[PWA] Service Worker registered with scope:', registration.scope);
-            
-            // Check for update
-            registration.onupdatefound = () => {
-              const installingWorker = registration.installing;
-              installingWorker.onstatechange = () => {
-                if (installingWorker.state === 'installed') {
-                  if (navigator.serviceWorker.controller) {
-                    // New content is available
-                    showToast('Nova atualização disponível!');
-                  } else {
-                    // App just installed
-                    showToast('Aplicação instalada!');
-                  }
-                }
-              };
-            };
-          })
-          .catch((err) => {
-            console.error('[PWA] Service Worker registration failed:', err);
-            showToast('Falha ao registrar Service Worker');
-          });
-      });
-    }
-    
-    // Handle app visibility change
-    document.addEventListener('visibilitychange', () => {
-      if (document.hidden) {
-        // App went to background - timer might need to pause
-      }
-    });
-  </script>
+  <!-- PWA glue (service worker) and the application entry point -->
+  <script type="module" src="js/pwa.js"></script>
+  <script type="module" src="js/app.js"></script>
 </body>
 </html>

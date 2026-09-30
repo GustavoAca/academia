@@ -8,12 +8,10 @@
  */
 
 // Bump the version whenever cached assets change so clients drop stale copies.
-const CACHE_VERSION = 'treino-cache-v19';
+const CACHE_VERSION = 'treino-cache-v21';
 let cacheName = `treino-${CACHE_VERSION}`;
 
 // We'll determine the base path dynamically during install
-const ASSETS_TO_CACHE = [];
-
 self.addEventListener('install', (event) => {
   self.skipWaiting();
 
@@ -42,9 +40,14 @@ self.addEventListener('install', (event) => {
         'manifest.json',
         'service-worker.js',
         'css/styles.css',
+        'icons/icon-192.png',
+        'icons/icon-512.png',
         'js/app.js',
+        'js/pwa.js',
         'js/db.js',
         'js/plano.js',
+        'js/biblioteca.js',
+        'js/orientacao-service.js',
         'js/workout-service.js',
         'js/measurement-service.js',
         'js/report-service.js',
@@ -53,8 +56,27 @@ self.addEventListener('install', (event) => {
         'js/cardio-service.js',
         'js/food-service.js',
         'js/timer-service.js',
-        'icons/icon-192.png',
-        'icons/icon-512.png',
+        'js/core/utils.js',
+        'js/core/estado.js',
+        'js/core/toast.js',
+        'js/core/rotas.js',
+        'js/core/render.js',
+        'js/core/programa.js',
+        'js/core/log-dia.js',
+        'js/core/seed.js',
+        'js/core/importacao.js',
+        'js/core/graficos.js',
+        'js/core/calculos-relatorio.js',
+        'js/eventos/index.js',
+        'js/eventos/globais.js',
+        'js/eventos/navegacao.js',
+        'js/telas/index.js',
+        'js/telas/treino.js',
+        'js/telas/medidas.js',
+        'js/telas/alimentacao.js',
+        'js/telas/relatorio.js',
+        'js/telas/rotina.js',
+        'js/telas/foco.js',
       ];
 
       // Cache each asset

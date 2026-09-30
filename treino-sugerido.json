@@ -1,0 +1,60 @@
+{
+  "origem": "personalizada",
+  "nome": "Força · Iniciante · Halteres",
+  "inicio": "2026-09-28",
+  "duracao": { "tipo": "semanas", "valor": 12 },
+  "dias": { "seg": true, "ter": true, "qua": true, "qui": true, "sex": true, "sab": false, "dom": false },
+  "treinos": {
+    "seg": {
+      "t": "Push A · Peito",
+      "ex": [
+        { "nome": "Supino com Halteres", "grupo": "Peito", "series": 4, "min": 5, "max": 8 },
+        { "nome": "Supino Inclinado com Halteres", "grupo": "Peito", "series": 3, "min": 6, "max": 10 },
+        { "nome": "Crucifixo com Halteres", "grupo": "Peito", "series": 2, "min": 10, "max": 15 },
+        { "nome": "Desenvolvimento com Halteres", "grupo": "Ombros", "series": 3, "min": 6, "max": 10 },
+        { "nome": "Tríceps Francês", "grupo": "Tríceps", "series": 3, "min": 8, "max": 12 }
+      ]
+    },
+    "ter": {
+      "t": "Pull A · Costas",
+      "ex": [
+        { "nome": "Remada Curvada com Halteres", "grupo": "Costas", "series": 4, "min": 5, "max": 8 },
+        { "nome": "Remada Unilateral", "grupo": "Costas", "series": 3, "min": 6, "max": 10 },
+        { "nome": "Pullover com Halter", "grupo": "Costas", "series": 2, "min": 8, "max": 12 },
+        { "nome": "Crucifixo Inverso", "grupo": "Ombro Posterior", "series": 3, "min": 10, "max": 15 },
+        { "nome": "Rosca Alternada", "grupo": "Bíceps", "series": 3, "min": 8, "max": 12 }
+      ]
+    },
+    "qua": {
+      "t": "Legs A · Pernas",
+      "ex": [
+        { "nome": "Agachamento Goblet", "grupo": "Quadríceps", "series": 4, "min": 5, "max": 8 },
+        { "nome": "Agachamento Búlgaro", "grupo": "Quadríceps", "series": 3, "min": 6, "max": 10 },
+        { "nome": "Terra Romeno com Halteres", "grupo": "Posterior", "series": 4, "min": 6, "max": 10 },
+        { "nome": "Elevação de Panturrilha com Halteres", "grupo": "Panturrilha", "series": 3, "min": 12, "max": 20 }
+      ]
+    },
+    "qui": {
+      "t": "Upper B · Costas+Ombros",
+      "ex": [
+        { "nome": "Flexão de Braço", "grupo": "Peito", "series": 3, "min": 8, "max": 15 },
+        { "nome": "Remada Alta com Halteres", "grupo": "Costas", "series": 3, "min": 8, "max": 12 },
+        { "nome": "Desenvolvimento Arnold", "grupo": "Ombros", "series": 3, "min": 6, "max": 10 },
+        { "nome": "Rosca Martelo", "grupo": "Bíceps", "series": 3, "min": 8, "max": 12 },
+        { "nome": "Tríceps Testa", "grupo": "Tríceps", "series": 3, "min": 8, "max": 12 }
+      ]
+    },
+    "sex": {
+      "t": "Lower B",
+      "ex": [
+        { "nome": "Afundo com Halteres", "grupo": "Quadríceps", "series": 4, "min": 6, "max": 10 },
+        { "nome": "Stiff com Halteres", "grupo": "Posterior", "series": 3, "min": 8, "max": 12 },
+        { "nome": "Elevação Pélvica", "grupo": "Posterior", "series": 3, "min": 8, "max": 12 },
+        { "nome": "Panturrilha Sentada com Halter", "grupo": "Panturrilha", "series": 3, "min": 12, "max": 20 },
+        { "nome": "Abdominal", "grupo": "Abdômen", "series": 3, "min": 12, "max": 20 }
+      ]
+    },
+    "sab": { "t": "", "ex": [] },
+    "dom": { "t": "", "ex": [] }
+  }
+}

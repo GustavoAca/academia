@@ -23,7 +23,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 2. Validar estrutura
+      # 2. Node para validar sintaxe e rodar os testes (sem npm install: o
+      #    projeto não tem dependências de runtime)
+      - name: Configurar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # 3. Validar estrutura
       - name: Validar estrutura
         run: |
           echo "Validando estrutura do projeto..."
@@ -35,37 +42,49 @@ jobs:
             "css/styles.css"
             "js/db.js"
             "js/app.js"
+            "js/pwa.js"
             "js/workout-service.js"
+            "js/core/render.js"
+            "js/telas/index.js"
+            "js/eventos/index.js"
           )
 
           for file in "${REQUIRED_FILES[@]}"; do
             if [ ! -f "$file" ]; then
-              echo "❌ Arquivo faltando: $file"
+              echo "O Arquivo faltando: $file"
               exit 1
             fi
           done
 
-          echo "✅ Estrutura validada com sucesso"
+          echo "OK. Estrutura validada com sucesso"
 
-      # 3. Verificar sintaxe JavaScript
+      # 4. Verificar sintaxe JavaScript (incluindo os subdiretórios)
       - name: Verificar sintaxe JavaScript
         run: |
           echo "Verificando sintaxe JavaScript..."
 
-          for jsfile in js/*.js; do
+          for jsfile in js/*.js js/core/*.js js/telas/*.js js/eventos/*.js; do
             if [ -f "$jsfile" ]; then
               echo "Verificando $jsfile"
 
               if ! node --check "$jsfile"; then
-                echo "❌ Erro de sintaxe em $jsfile"
+                echo "Erro de sintaxe em $jsfile"
                 exit 1
               fi
             fi
           done
 
-          echo "✅ Sintaxe JavaScript válida"
+          echo "OK. Sintaxe JavaScript válida"
 
-      # 4. Verificar configuração PWA
+      # 5. Testes unitários (node:test, sem dependências)
+      - name: Rodar testes
+        run: npm test
+
+      # 6. Validação da biblioteca de exercícios
+      - name: Validar biblioteca
+        run: node scripts/validar-biblioteca.mjs
+
+      # 7. Verificar configuração PWA
       - name: Verificar configuração PWA
         run: |
           echo "Verificando configuração PWA..."
@@ -80,31 +99,31 @@ jobs:
 
           for field in "${REQUIRED_MANIFEST[@]}"; do
             if ! grep -q "\"$field\"" manifest.json; then
-              echo "❌ Campo faltando no manifest.json: $field"
+              echo "Campo faltando no manifest.json: $field"
               exit 1
             fi
           done
 
-          echo "✅ manifest.json verificado"
+          echo "OK. manifest.json verificado"
 
           if [ ! -f "service-worker.js" ]; then
-            echo "❌ service-worker.js não encontrado"
+            echo "service-worker.js não encontrado"
             exit 1
           fi
 
-          echo "✅ service-worker.js encontrado"
+          echo "OK. service-worker.js encontrado"
 
-      # 5. Configurar GitHub Pages
+      # 8. Configurar GitHub Pages
       - name: Configurar Pages
         uses: actions/configure-pages@v5
 
-      # 6. Criar artifact
+      # 9. Criar artifact
       - name: Upload artifact for GitHub Pages
         uses: actions/upload-pages-artifact@v4
         with:
           path: .
 
-      # 7. Deploy
+      # 10. Deploy
       - name: Deploy para GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4

@@ -1,0 +1,706 @@
+/**
+ * Alimentação screen: daily summary, meal logging, inline item editor,
+ * meal management and the paginated food suggestion lists.
+ */
+
+import { esc, f1, r1n, refeicaoSugerida } from '../core/utils.js';
+import { state, aguardarGravacoes } from '../core/estado.js';
+import {
+  getRefeicoes,
+  criarRefeicao,
+  renomearRefeicao,
+  removerRefeicao,
+  getMeta,
+  salvarMeta,
+  adicionarItem,
+  removerItem,
+  editarItem,
+  buscarAlimento,
+  salvarReferencia,
+  buscarCatalogo,
+  TAM_PAGINA,
+  resumoDoDia
+} from '../food-service.js';
+import { render, moldura } from '../core/render.js';
+import { registrarTela } from '../core/rotas.js';
+import { aviso } from '../core/toast.js';
+
+/* --- Paginated suggestion lists (type-ahead of the Alimento field + catalog) --- */
+
+export function novaLista() {
+  return { termo: '', offset: 0, itens: [], temMais: false, total: 0, carregando: false, pronto: false, aberto: false, seq: 0 };
+}
+
+let sugState = novaLista(); // drop-down that opens from the "Alimento" field
+let catState = novaLista(); // "Alimentos por 100 g" list
+let timerSug = null;
+let timerCat = null;
+
+/** State of the type-ahead list (read by the keyboard/scroll handlers). */
+export const listaSugestoes = () => sugState;
+
+/** Forget both lists (called whenever the screen is re-rendered). */
+export function resetarListas() {
+  clearTimeout(timerSug);
+  clearTimeout(timerCat);
+  timerSug = timerCat = null;
+  sugState = novaLista();
+  catState = novaLista();
+}
+
+/** True when a scrollable box is close enough to its bottom to load more. */
+export function semFim(el, margem) {
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= (margem || 60);
+}
+
+function linhaSugestao(f) {
+  const nome = f.exibicao || f.nome || '';
+  const ref = f.kcal100 !== null && f.kcal100 !== undefined && Number(f.kcal100) > 0
+    ? `${f1(f.kcal100)} kcal/100 g`
+    : 'sem referência';
+  const usos = `${f.vezes || 0} registro${(f.vezes || 0) === 1 ? '' : 's'}`;
+  return `<button type="button" class="li" data-a="alimsel" data-n="${esc(nome)}"><span class="n"><b>${esc(nome)}</b><small>${ref} · ${usos}</small></span></button>`;
+}
+
+function linhaCatalogo(f) {
+  const nome = f.exibicao || f.nome || '';
+  return `<div class="li" style="padding:8px 10px">
+    <span class="n"><b>${esc(nome)}</b><small>${f.vezes || 0} registro${(f.vezes || 0) === 1 ? '' : 's'}</small></span>
+    <input class="sel" data-k="alkcal" data-n="${esc(f.nome)}" inputmode="decimal" value="${f.kcal100 === null || f.kcal100 === undefined ? '' : String(f.kcal100).replace('.', ',')}" placeholder="?" style="width:88px;flex:none;height:40px;text-align:center" aria-label="Calorias por 100 g de ${esc(nome)}">
+    <span style="font-size:12px;color:var(--mut);white-space:nowrap">kcal/100 g</span></div>`;
+}
+
+export function htmlSugestoes() {
+  const st = sugState;
+  const corpo = st.itens.length
+    ? st.itens.map(linhaSugestao).join('')
+    : `<div class="meta" style="padding:12px">${st.termo
+      ? 'Nenhum alimento encontrado — o texto digitado pode ser registrado assim mesmo.'
+      : 'Nenhum alimento no catálogo ainda — digite o nome.'}</div>`;
+  return corpo + (st.carregando ? '<div class="meta" style="text-align:center;padding:8px">Carregando…</div>' : '');
+}
+
+export function htmlCatalogo() {
+  const st = catState;
+  const corpo = st.itens.length
+    ? st.itens.map(linhaCatalogo).join('')
+    : `<div class="meta">${st.termo ? 'Nenhum alimento encontrado.' : 'Nenhum alimento no catálogo ainda.'}</div>`;
+  const contagem = st.itens.length
+    ? `<div class="meta" style="text-align:center;font-size:12px">${st.itens.length}${st.total ? ` de ${st.total}` : ''}</div>`
+    : '';
+  const carga = st.carregando ? '<div class="meta" style="text-align:center;padding:6px">Carregando…</div>' : '';
+  return corpo + contagem + carga;
+}
+
+function pintarSugestoes(reset) {
+  const box = document.getElementById('alimSug');
+  if (!box) return;
+  const top = box.scrollTop;
+  box.innerHTML = htmlSugestoes();
+  box.scrollTop = reset ? 0 : top;
+}
+
+function pintarCatalogo(reset) {
+  const box = document.getElementById('alimCatLista');
+  if (!box) return;
+  const top = box.scrollTop;
+  box.innerHTML = htmlCatalogo();
+  box.scrollTop = reset ? 0 : top;
+}
+
+/**
+ * Fetch one page of the type-ahead list and merge it into the state. A stale
+ * request (a newer search already started) is discarded.
+ * @param {boolean} reset - restart the list from the first page
+ */
+export async function carregarSugestoes(reset) {
+  const st = sugState;
+  if (st.carregando && !reset) return;
+  const termo = st.termo;
+  const offset = reset ? 0 : st.offset;
+  const seq = ++st.seq;
+  st.carregando = true;
+  pintarSugestoes(reset);
+  try {
+    const r = await buscarCatalogo(termo, offset, TAM_PAGINA);
+    if (seq !== st.seq || st !== sugState) return;
+    st.itens = reset ? r.itens : st.itens.concat(r.itens);
+    st.offset = offset + r.itens.length;
+    st.temMais = r.temMais;
+    st.total = r.total;
+    st.pronto = true;
+  } finally {
+    if (seq === st.seq && st === sugState) {
+      st.carregando = false;
+      pintarSugestoes(reset);
+    }
+  }
+}
+
+/** Same as carregarSugestoes, for the "Alimentos por 100 g" list. */
+export async function carregarCatalogo(reset) {
+  const st = catState;
+  if (st.carregando && !reset) return;
+  const termo = st.termo;
+  const offset = reset ? 0 : st.offset;
+  const seq = ++st.seq;
+  st.carregando = true;
+  pintarCatalogo(reset);
+  try {
+    const r = await buscarCatalogo(termo, offset, TAM_PAGINA);
+    if (seq !== st.seq || st !== catState) return;
+    st.itens = reset ? r.itens : st.itens.concat(r.itens);
+    st.offset = offset + r.itens.length;
+    st.temMais = r.temMais;
+    st.total = r.total;
+    st.pronto = true;
+  } finally {
+    if (seq === st.seq && st === catState) {
+      st.carregando = false;
+      pintarCatalogo(reset);
+    }
+  }
+}
+
+/** Debounced search of the type-ahead list (keeps the field focus). */
+export function agendaSugestoes(termo) {
+  sugState.termo = termo;
+  clearTimeout(timerSug);
+  timerSug = setTimeout(() => carregarSugestoes(true), 150);
+}
+
+/** Debounced search of the "Alimentos por 100 g" list (keeps the focus). */
+export function agendaCatalogo(termo) {
+  catState.termo = termo;
+  clearTimeout(timerCat);
+  timerCat = setTimeout(() => carregarCatalogo(true), 150);
+}
+
+/**
+ * Cap the drop-down so it always ends above the "Adicionar" button: the list
+ * covers the fields below the Alimento input but never the button.
+ */
+export function ajustarAlturaPop() {
+  const box = document.getElementById('alimSug');
+  const wrap = box && box.closest('.alim-wrap');
+  if (!box || !wrap) return;
+  box.style.maxHeight = '';
+  const card = wrap.closest('.card');
+  const acoes = card && card.querySelector('.acoes');
+  if (!acoes) return;
+  const topo = wrap.getBoundingClientRect().bottom + 6;
+  const disponivel = acoes.getBoundingClientRect().top - 8 - topo;
+  if (disponivel > 96) box.style.maxHeight = `${Math.floor(disponivel)}px`;
+}
+
+/** Open the drop-down under the Alimento field, loading its first page. */
+export async function abrirSugestoes() {
+  const box = document.getElementById('alimSug');
+  if (!box || sugState.aberto) return;
+  const nomeEl = document.getElementById('alimNome');
+  sugState.aberto = true;
+  box.hidden = false;
+  if (nomeEl) nomeEl.setAttribute('aria-expanded', 'true');
+  ajustarAlturaPop();
+  const termo = nomeEl ? nomeEl.value : '';
+  if (!sugState.pronto || sugState.termo !== termo) {
+    sugState.termo = termo;
+    await carregarSugestoes(true);
+  } else {
+    pintarSugestoes(false);
+  }
+}
+
+export function fecharSugestoes() {
+  sugState.aberto = false;
+  const box = document.getElementById('alimSug');
+  if (box) box.hidden = true;
+  const nomeEl = document.getElementById('alimNome');
+  if (nomeEl) nomeEl.setAttribute('aria-expanded', 'false');
+}
+
+/** Fill the Alimento field from a suggestion and move on to the grams. */
+export function escolherSugestao(nome) {
+  const nomeEl = document.getElementById('alimNome');
+  const gEl = document.getElementById('alimG');
+  if (nomeEl) nomeEl.value = nome || '';
+  fecharSugestoes();
+  atualizarAlimAuto(true).catch(err => console.error('Erro ao calcular calorias:', err));
+  if (gEl) gEl.focus();
+}
+
+/**
+ * Keep the calorie field in sync with the grams when the food has a calorie
+ * reference per 100 g (kcal100). With a reference the field is read-only:
+ * calories always come from the conversion.
+ * @param {boolean} prefill - also pre-fill empty grams with the last ones used
+ */
+export async function atualizarAlimAuto(prefill) {
+  const nomeEl = document.getElementById('alimNome');
+  const gEl = document.getElementById('alimG');
+  const kEl = document.getElementById('alimK');
+  const hint = document.getElementById('alimHint');
+  if (!nomeEl || !gEl || !kEl) return;
+
+  const f = await buscarAlimento(nomeEl.value);
+  const temRef = !!(f && f.kcal100);
+  kEl.readOnly = temRef;
+
+  if (!temRef) {
+    if (hint) {
+      hint.textContent = f
+        ? 'Este alimento ainda não tem referência por 100 g — informe as calorias.'
+        : 'Informe as gramas e as calorias deste alimento.';
+    }
+    return;
+  }
+
+  let g = Number(String(gEl.value || '').replace(',', '.'));
+  if (prefill && !(g > 0) && f.ultimoGramas) {
+    g = Number(f.ultimoGramas);
+    gEl.value = String(f.ultimoGramas).replace('.', ',');
+  }
+
+  if (g > 0) {
+    kEl.value = String(r1n(g * f.kcal100 / 100)).replace('.', ',');
+    hint.textContent = `${f.exibicao}: ${f1(f.kcal100)} kcal por 100 g · ${f1(g)} g → ${f1(Number(String(kEl.value).replace(',', '.')) || 0)} kcal`;
+  } else {
+    kEl.value = '';
+    hint.textContent = `${f.exibicao}: ${f1(f.kcal100)} kcal por 100 g · digite as gramas`;
+  }
+}
+/** Row of a day's item: read mode (edit/remove) or inline editor. */
+function linhaItemDia(i) {
+  const gramas = i.gramas !== null && i.gramas !== undefined ? f1(i.gramas) + ' g · ' : '';
+  if (state.alimEdit !== i.id) {
+    return `<div class="li"><span class="n"><b>${esc(i.alimento)}</b><small>${gramas}${f1(i.calorias)} kcal</small></span>
+      <button class="btn" style="width:40px;height:40px;flex:none" data-a="ialimedit" data-v="${i.id}" data-n="${esc(i.alimento)}" data-r="${i.kcal100 === null || i.kcal100 === undefined ? '' : i.kcal100}" aria-label="Editar item ${esc(i.alimento)}">✎</button>
+      <button class="btn" style="width:40px;height:40px;flex:none" data-a="iremoveralim" data-v="${i.id}" aria-label="Remover item">×</button></div>`;
+  }
+
+  const ref = state.alimEditRef;
+  const temRef = ref !== null && ref !== undefined && isFinite(Number(ref)) && Number(ref) > 0;
+  const gv = i.gramas === null || i.gramas === undefined ? '' : String(i.gramas).replace('.', ',');
+  const kv = temRef
+    ? (i.gramas !== null && i.gramas !== undefined
+      ? String(r1n(Number(i.gramas) * Number(ref) / 100)).replace('.', ',')
+      : '')
+    : (i.calorias === null || i.calorias === undefined ? '' : String(i.calorias).replace('.', ','));
+
+  return `<div class="li" style="flex-wrap:wrap">
+    <span class="n" style="min-width:100%"><b>${esc(i.alimento)}</b><small>${temRef
+      ? `${f1(Number(ref))} kcal/100 g — as calorias vêm da conversão`
+      : 'sem referência por 100 g — informe as calorias'}</small></span>
+    <div style="display:flex;gap:8px;width:100%">
+      <input class="sel" id="alimEditG" inputmode="decimal" value="${esc(gv)}" placeholder="gramas" style="flex:1;height:44px" aria-label="Gramas de ${esc(i.alimento)}">
+      <input class="sel" id="alimEditK" inputmode="decimal" value="${esc(kv)}" placeholder="kcal" ${temRef ? 'readonly' : ''} style="flex:1;height:44px" aria-label="Calorias de ${esc(i.alimento)}">
+    </div>
+    <div class="acoes" style="width:100%;margin-top:8px">
+      <button class="btn p" data-a="ialimsalvar" data-v="${i.id}">Salvar</button>
+      <button class="btn" data-a="ialimcancel">Cancelar</button>
+    </div></div>`;
+}
+
+/** Full HTML of the Alimentação screen. */
+export async function telaAlimentacao() {
+  resetarListas();
+  const data = state.alim;
+  const [resumoDia, refeicoes, primeira] = await Promise.all([
+    resumoDoDia(data),
+    getRefeicoes(),
+    buscarCatalogo('', 0, TAM_PAGINA)
+  ]);
+
+  sugState.itens = primeira.itens;
+  sugState.offset = primeira.itens.length;
+  sugState.temMais = primeira.temMais;
+  sugState.total = primeira.total;
+  sugState.pronto = true;
+  catState.itens = primeira.itens;
+  catState.offset = primeira.itens.length;
+  catState.temMais = primeira.temMais;
+  catState.total = primeira.total;
+  catState.pronto = true;
+
+  const meta = resumoDia.meta;
+  const excedeu = meta !== null && resumoDia.total > meta;
+  const falta = meta === null ? null : meta - resumoDia.total;
+  const pct = meta ? Math.min(100, resumoDia.total / meta * 100) : 0;
+  const kp = (b, s) => `<div class="kpi"><b>${b}</b><small>${s}</small></div>`;
+
+  const terceiro = falta === null
+    ? kp('—', 'defina uma meta diária')
+    : falta >= 0
+      ? kp(f1(falta) + ' kcal', 'faltam para a meta')
+      : kp(f1(-falta) + ' kcal', 'acima da meta');
+
+  const maxRef = Math.max(1, ...resumoDia.porRefeicao.map(r => r.total));
+  const porRef = resumoDia.porRefeicao.map(r => `<div class="hbar">
+    <span>${esc(r.nome)}</span><span><i style="width:${(r.total / maxRef * 100).toFixed(0)}%;background:${r.total ? 'var(--ac)' : 'var(--line)'}"></i></span>
+    <span style="white-space:nowrap">${f1(r.total)} kcal</span></div>`).join('');
+
+  if (!refeicoes.some(r => r.id === state.alimRef)) state.alimRef = refeicaoSugerida(refeicoes);
+  const opts = refeicoes.map(r => `<option value="${r.id}"${r.id === state.alimRef ? ' selected' : ''}>${esc(r.nome)}</option>`).join('');
+  const chips = primeira.itens.slice(0, 12).map(f => {
+    const g = f.ultimoGramas === null || f.ultimoGramas === undefined ? '' : String(f.ultimoGramas).replace('.', ',');
+    const c = f.ultimoCalorias === null || f.ultimoCalorias === undefined ? '' : String(f.ultimoCalorias).replace('.', ',');
+    return `<button class="grp" data-a="alimchip" data-n="${esc(f.exibicao)}" data-g="${esc(g)}" data-c="${esc(c)}" style="border:0;cursor:pointer;margin:0 6px 6px 0;font:inherit">${esc(f.exibicao)}</button>`;
+  }).join('');
+
+  const grupos = resumoDia.porRefeicao.map(r => {
+    const itens = r.itens.map(linhaItemDia).join('');
+    return `<div class="sub" style="margin-top:12px"><b>${esc(r.nome)}</b> · ${f1(r.total)} kcal</div>${itens || '<div class="meta">Nada registrado.</div>'}`;
+  }).join('');
+
+  const gerenciar = refeicoes.map(r => `<div class="li" style="padding:8px 10px">
+    <input class="sel" data-k="alimrefnome" data-v="${r.id}" value="${esc(r.nome)}" style="flex:1;height:40px;text-align:left" aria-label="Nome da refeição ${esc(r.nome)}">
+    <button class="btn" style="width:40px;height:40px;flex:none" data-a="alimrefdel" data-v="${r.id}" aria-label="Remover refeição ${esc(r.nome)}">×</button></div>`).join('');
+
+  const corpo = `<div class="card sec"><h2>Resumo do dia</h2>
+    <input type="date" class="sel" data-k="alimdata" value="${data}" style="margin-bottom:12px" aria-label="Data do registro">
+    <div class="kpis">${kp(f1(resumoDia.total), 'kcal no dia')}${kp(meta !== null ? f1(meta) + ' kcal' : '—', 'meta diária')}${terceiro}</div>
+    ${meta !== null ? `<div class="bar"><i style="width:${pct.toFixed(0)}%;background:${excedeu ? 'var(--warn)' : 'var(--ok)'}"></i></div>` : ''}
+    <div class="frm" style="margin-top:12px"><div><label>Meta diária (kcal)</label><input data-k="alimmeta" inputmode="decimal" value="${meta !== null ? String(meta).replace('.', ',') : ''}" placeholder="ex.: 2200" aria-label="Meta calórica diária"></div></div>
+    <div class="sub" style="margin-top:12px">Calorias por refeição</div>${porRef}
+  </div>
+
+  <div class="card sec"><h2>Registrar</h2>
+    <div class="sub">Com a referência de 100 g, digite só as gramas — as calorias vêm na conversão.</div>
+    <div class="frm">
+      <div style="grid-column:1/-1"><label>Refeição</label><select class="sel" id="alimRef" data-k="alimref" aria-label="Refeição">${opts}</select></div>
+      <div class="alim-wrap">
+        <label>Alimento</label>
+        <input id="alimNome" data-k="alimNome" placeholder="ex.: Frango grelhado" aria-label="Alimento" autocomplete="off" enterkeyhint="next" aria-autocomplete="list" aria-expanded="false">
+        <div id="alimSug" class="pop" role="listbox" hidden></div>
+      </div>
+      <div><label>Gramas</label><input id="alimG" data-k="alimG" inputmode="decimal" placeholder="ex.: 150" aria-label="Gramas"></div>
+      <div><label>Calorias</label><input id="alimK" data-k="alimK" inputmode="decimal" placeholder="ex.: 250" aria-label="Calorias"></div>
+    </div>
+    <div class="sub" id="alimHint" style="margin-top:8px">Informe as gramas e as calorias deste alimento.</div>
+    ${chips ? `<div style="margin-top:10px">${chips}</div>` : ''}
+    <div class="acoes"><button class="btn p" data-a="aalim">Adicionar</button></div>
+  </div>
+
+  <div class="card sec"><h2>Itens do dia</h2>${grupos}</div>
+
+  <div class="card sec"><h2>Alimentos por 100 g</h2>
+    <div class="sub">A referência de calorias a cada 100 g de cada alimento. Salvar um item nunca altera este valor — ele só muda aqui.</div>
+    <input class="sel" id="alimCatBusca" data-k="alimcatbusca" placeholder="Buscar alimento…" aria-label="Buscar alimento por 100 g" autocomplete="off" style="margin-bottom:10px">
+    <div id="alimCatLista" class="lista-scroll">${htmlCatalogo()}</div>
+    <div class="frm" style="margin-top:8px">
+      <div style="grid-column:1/-1"><label>Novo alimento</label><input id="alimAlNovo" placeholder="ex.: Iogurte natural" aria-label="Novo alimento"></div>
+      <div><label>Calorias por 100 g</label><input id="alimKcalNovo" inputmode="decimal" placeholder="ex.: 60" aria-label="Calorias por 100 gramas"></div>
+    </div>
+    <div class="acoes"><button class="btn" data-a="alrefadd">Adicionar alimento</button></div>
+  </div>
+
+  <div class="card sec"><h2>Refeições</h2>
+    <div class="sub">Renomeie, crie ou remova refeições. Só é possível remover refeições sem itens.</div>
+    ${gerenciar}
+    <div class="frm" style="margin-top:8px"><div style="grid-column:1/-1"><label>Nova refeição</label><input id="alimRefNovo" placeholder="ex.: Ceia" aria-label="Nova refeição"></div></div>
+    <div class="acoes"><button class="btn" data-a="alimrefadd">Adicionar refeição</button></div>
+  </div>`;
+
+  return moldura('Alimentação', corpo);
+}
+/* --- Actions (data-a) and fields (data-k) of this screen --- */
+
+/**
+ * Handle one click action of this screen.
+ * @param {string} a
+ * @param {HTMLElement} b
+ * @returns {Promise<boolean>}
+ */
+export async function aoClicar(a, b) {
+  const v = +b.dataset.v;
+
+  if (a === 'aalim') {
+    try {
+      await adicionarItem({
+        data: state.alim,
+        refeicaoId: (document.getElementById('alimRef') || {}).value,
+        alimento: (document.getElementById('alimNome') || {}).value,
+        gramas: (document.getElementById('alimG') || {}).value,
+        calorias: (document.getElementById('alimK') || {}).value
+      });
+      state.alimEdit = null;
+      state.alimEditRef = null;
+      fecharSugestoes();
+      await render();
+      aviso('Item registrado ✓');
+    } catch (err) {
+      console.error('Erro ao registrar item:', err);
+      aviso(err.message);
+    }
+    return true;
+  }
+
+  if (a === 'alimchip') {
+    const nome = document.getElementById('alimNome');
+    const gr = document.getElementById('alimG');
+    const kc = document.getElementById('alimK');
+    if (nome) nome.value = b.dataset.n || '';
+    if (gr) gr.value = b.dataset.g || '';
+    if (kc) kc.value = b.dataset.c || '';
+    await atualizarAlimAuto(false);
+    if (gr) gr.focus();
+    return true;
+  }
+
+  if (a === 'alimsel') {
+    escolherSugestao(b.dataset.n || '');
+    return true;
+  }
+
+  if (a === 'iremoveralim') {
+    await removerItem(v);
+    state.alimEdit = null;
+    state.alimEditRef = null;
+    await render();
+    aviso('Item removido');
+    return true;
+  }
+
+  if (a === 'ialimedit') {
+    try {
+      const f = await buscarAlimento(b.dataset.n || '');
+      const doCat = f && f.kcal100 !== null && f.kcal100 !== undefined && Number(f.kcal100) > 0
+        ? Number(f.kcal100)
+        : null;
+      const doItem = Number(b.dataset.r);
+      state.alimEditRef = doCat !== null
+        ? doCat
+        : (isFinite(doItem) && doItem > 0 ? doItem : null);
+      state.alimEdit = v;
+      await render();
+      const g = document.getElementById('alimEditG');
+      if (g) { g.focus(); g.select && g.select(); }
+    } catch (err) {
+      aviso(err.message);
+    }
+    return true;
+  }
+
+  if (a === 'ialimcancel') {
+    state.alimEdit = null;
+    state.alimEditRef = null;
+    await render();
+    return true;
+  }
+
+  if (a === 'ialimsalvar') {
+    try {
+      await editarItem(v, {
+        gramas: (document.getElementById('alimEditG') || {}).value,
+        calorias: (document.getElementById('alimEditK') || {}).value
+      });
+      state.alimEdit = null;
+      state.alimEditRef = null;
+      await render();
+      aviso('Item atualizado ✓');
+    } catch (err) {
+      console.error('Erro ao editar item:', err);
+      aviso(err.message);
+    }
+    return true;
+  }
+
+  if (a === 'alimrefadd') {
+    const refNovo = document.getElementById('alimRefNovo');
+    try {
+      await criarRefeicao(refNovo && refNovo.value);
+      await render();
+      aviso('Refeição criada ✓');
+    } catch (err) {
+      aviso(err.message);
+    }
+    return true;
+  }
+
+  if (a === 'alimrefdel') {
+    try {
+      await removerRefeicao(b.dataset.v);
+      await render();
+      aviso('Refeição removida');
+    } catch (err) {
+      aviso(err.message);
+    }
+    return true;
+  }
+
+  if (a === 'alrefadd') {
+    const alNovo = document.getElementById('alimAlNovo');
+    const kcalNovo = document.getElementById('alimKcalNovo');
+    try {
+      await salvarReferencia(alNovo && alNovo.value, kcalNovo && kcalNovo.value);
+      await render();
+      aviso('Alimento adicionado ✓');
+    } catch (err) {
+      aviso(err.message);
+    }
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Date, food fields and search boxes of this screen.
+ * @param {HTMLElement} el
+ * @returns {Promise<boolean>}
+ */
+export async function aoDigitar(el) {
+  const k = el.dataset.k;
+
+  if (k === 'alimdata') {
+    if (el.value) {
+      await aguardarGravacoes();
+      state.alim = el.value;
+      state.alimEdit = null;
+      state.alimEditRef = null;
+      await render();
+    }
+    return true;
+  }
+
+  if (k === 'alimNome') {
+    await atualizarAlimAuto(false);
+    agendaSugestoes(el.value);
+    return true;
+  }
+
+  if (k === 'alimG') {
+    await atualizarAlimAuto(false);
+    return true;
+  }
+
+  if (k === 'alimcatbusca') {
+    agendaCatalogo(el.value);
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Meal select, calorie meta, meal names, food name and kcal/100 g reference.
+ * @param {HTMLElement} el
+ * @returns {Promise<boolean>}
+ */
+export async function aoMudar(el) {
+  const k = el.dataset.k;
+
+  if (k === 'alimref') {
+    state.alimRef = el.value;
+    return true;
+  }
+
+  if (k === 'alimmeta') {
+    try {
+      await salvarMeta(el.value);
+      await render();
+    } catch (err) {
+      aviso(err.message);
+    }
+    return true;
+  }
+
+  if (k === 'alimrefnome') {
+    try {
+      await renomearRefeicao(el.dataset.v, el.value);
+      await render();
+    } catch (err) {
+      aviso(err.message);
+      await render();
+    }
+    return true;
+  }
+
+  if (k === 'alimNome') {
+    await atualizarAlimAuto(true);
+    return true;
+  }
+
+  if (k === 'alkcal') {
+    try {
+      await salvarReferencia(el.dataset.n, el.value);
+      aviso('Referência salva ✓');
+      await atualizarAlimAuto(false);
+    } catch (err) {
+      aviso(err.message);
+    }
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Listeners owned by the suggestion drop-downs: open on focus, close on
+ * outside click, paginate on scroll and reposition on resize.
+ */
+export function registrarEventosLista() {
+  document.addEventListener('focusin', ev => {
+    const el = ev.target;
+    if (el && el.id === 'alimNome') {
+      abrirSugestoes().catch(err => console.error('Erro ao abrir sugestões:', err));
+    }
+  });
+
+  // Close the drop-down when tapping anywhere outside the Alimento field.
+  document.addEventListener('click', ev => {
+    if (!sugState.aberto) return;
+    const alvo = ev.target;
+    if (alvo && alvo.closest && alvo.closest('.alim-wrap')) return;
+    fecharSugestoes();
+  });
+
+  // Pagination by dragging: the next page is fetched near the bottom of a list.
+  document.addEventListener('scroll', ev => {
+    const t = ev.target;
+    if (!t) return;
+    if (t.id === 'alimSug') {
+      if (sugState.temMais && !sugState.carregando && semFim(t)) {
+        carregarSugestoes(false).catch(err => console.error('Erro ao carregar sugestões:', err));
+      }
+      return;
+    }
+    if (t.id === 'alimCatLista') {
+      if (catState.temMais && !catState.carregando && semFim(t)) {
+        carregarCatalogo(false).catch(err => console.error('Erro ao carregar catálogo:', err));
+      }
+    }
+  }, true);
+
+  // The drop-down height depends on the space left above the "Adicionar" button.
+  window.addEventListener('resize', () => {
+    if (sugState.aberto) ajustarAlturaPop();
+  });
+}
+
+/**
+ * Escape/Enter while the type-ahead is open.
+ * @param {KeyboardEvent} e
+ * @returns {boolean} true when the key was consumed
+ */
+export function tratarTecladoLista(e) {
+  const t = document.activeElement;
+
+  if (e.key === 'Escape' && sugState.aberto) {
+    fecharSugestoes();
+    if (t && t.id === 'alimNome') t.blur();
+    return true;
+  }
+
+  if (e.key === 'Enter' && t && t.id === 'alimNome' && sugState.aberto && sugState.itens.length) {
+    e.preventDefault();
+    escolherSugestao(sugState.itens[0].exibicao || sugState.itens[0].nome || '');
+    return true;
+  }
+
+  return false;
+}
+
+registrarTela('alim', { render: telaAlimentacao });
+
+
