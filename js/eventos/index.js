@@ -67,5 +67,6 @@ export function registrarEventos() {
   document.addEventListener('click', aoClicar);
   globais.registrarArquivos();
   alimentacao.registrarEventosLista();
+  alimentacao.registrarArraste();
   registrarNavegacao();
 }

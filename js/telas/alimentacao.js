@@ -10,12 +10,15 @@ import {
   criarRefeicao,
   renomearRefeicao,
   removerRefeicao,
+  reordenarRefeicoes,
   getMeta,
   salvarMeta,
   salvarMetaMacros,
   adicionarItem,
   removerItem,
+  removerAlimento,
   editarItem,
+  moverItem,
   buscarAlimento,
   salvarReferencia,
   buscarCatalogo,
@@ -123,6 +126,7 @@ function linhaCatalogo(f) {
       ${macro('alprot', f.prot100, 'Prot', 'Proteína')}
       ${macro('alcarb', f.carb100, 'Carb', 'Carboidrato')}
       ${macro('algord', f.gord100, 'Gord', 'Gordura')}
+      <button class="btn" style="width:36px;height:34px;flex:none;margin-left:auto" data-a="alalimdel" data-v="${f.id === undefined || f.id === null ? '' : f.id}" data-n="${esc(nome)}" data-u="${f.vezes || 0}" aria-label="Excluir ${esc(nome)} do catálogo">×</button>
     </div></div>`;
 }
 
@@ -329,10 +333,10 @@ export async function atualizarAlimAuto(prefill) {
   }
 }
 /** Row of a day's item: read mode (edit/remove) or inline editor. */
-function linhaItemDia(i) {
+function linhaItemDia(i, opts) {
   const gramas = i.gramas !== null && i.gramas !== undefined ? f1(i.gramas) + ' g · ' : '';
   if (state.alimEdit !== i.id) {
-    return `<div class="li"><span class="n"><b>${esc(i.alimento)}</b><small>${gramas}${f1(i.calorias)} kcal${macrosItemTxt(i)}</small></span>
+    return `<div class="li" data-item="${i.id}" data-ref="${esc(i.refeicaoId || '')}"><span class="n"><b>${esc(i.alimento)}</b><small>${gramas}${f1(i.calorias)} kcal${macrosItemTxt(i)}</small></span>
       <button class="btn" style="width:40px;height:40px;flex:none" data-a="ialimedit" data-v="${i.id}" data-n="${esc(i.alimento)}" data-r="${i.kcal100 === null || i.kcal100 === undefined ? '' : i.kcal100}" aria-label="Editar item ${esc(i.alimento)}">✎</button>
       <button class="btn" style="width:40px;height:40px;flex:none" data-a="iremoveralim" data-v="${i.id}" aria-label="Remover item">×</button></div>`;
   }
@@ -354,6 +358,8 @@ function linhaItemDia(i) {
       <input class="sel" id="alimEditG" inputmode="decimal" value="${esc(gv)}" placeholder="gramas" style="flex:1;height:44px" aria-label="Gramas de ${esc(i.alimento)}">
       <input class="sel" id="alimEditK" inputmode="decimal" value="${esc(kv)}" placeholder="kcal" ${temRef ? 'readonly' : ''} style="flex:1;height:44px" aria-label="Calorias de ${esc(i.alimento)}">
     </div>
+    ${opts ? `<div style="width:100%;margin-top:8px"><label style="font-size:12px;color:var(--mut);display:block;margin-bottom:2px">Refeição</label>
+      <select class="sel" id="alimEditRef" aria-label="Refeição do item">${opts}</select></div>` : ''}
     <div class="acoes" style="width:100%;margin-top:8px">
       <button class="btn p" data-a="ialimsalvar" data-v="${i.id}">Salvar</button>
       <button class="btn" data-a="ialimcancel">Cancelar</button>
@@ -413,7 +419,8 @@ export async function telaAlimentacao() {
     <span style="white-space:nowrap">${f1(r.total)} kcal</span></div>`).join('');
 
   if (!refeicoes.some(r => r.id === state.alimRef)) state.alimRef = refeicaoSugerida(refeicoes);
-  const opts = refeicoes.map(r => `<option value="${r.id}"${r.id === state.alimRef ? ' selected' : ''}>${esc(r.nome)}</option>`).join('');
+  const optsDe = sel => refeicoes.map(r => `<option value="${r.id}"${r.id === sel ? ' selected' : ''}>${esc(r.nome)}</option>`).join('');
+  const opts = optsDe(state.alimRef);
   const chips = primeira.itens.slice(0, 12).map(f => {
     const g = f.ultimoGramas === null || f.ultimoGramas === undefined ? '' : String(f.ultimoGramas).replace('.', ',');
     const c = f.ultimoCalorias === null || f.ultimoCalorias === undefined ? '' : String(f.ultimoCalorias).replace('.', ',');
@@ -421,11 +428,13 @@ export async function telaAlimentacao() {
   }).join('');
 
   const grupos = resumoDia.porRefeicao.map(r => {
-    const itens = r.itens.map(linhaItemDia).join('');
-    return `<div class="sub" style="margin-top:12px"><b>${esc(r.nome)}</b> · ${f1(r.total)} kcal</div>${itens || '<div class="meta">Nada registrado.</div>'}`;
+    const itens = r.itens.map(i => linhaItemDia(i, optsDe(i.refeicaoId))).join('');
+    return `<div class="grupo-dia" data-grupo="${r.id}">
+      <div class="sub" style="margin-top:12px"><b>${esc(r.nome)}</b> · ${f1(r.total)} kcal</div>${itens || '<div class="meta">Nada registrado.</div>'}</div>`;
   }).join('');
 
-  const gerenciar = refeicoes.map(r => `<div class="li" style="padding:8px 10px">
+  const gerenciar = refeicoes.map(r => `<div class="li" data-ordem="${r.id}" style="padding:8px 10px">
+    <span class="alca" data-alca title="Arraste para reordenar" aria-label="Reordenar ${esc(r.nome)}">⋮⋮</span>
     <input class="sel" data-k="alimrefnome" data-v="${r.id}" value="${esc(r.nome)}" style="flex:1;height:40px;text-align:left" aria-label="Nome da refeição ${esc(r.nome)}">
     <button class="btn" style="width:40px;height:40px;flex:none" data-a="alimrefdel" data-v="${r.id}" aria-label="Remover refeição ${esc(r.nome)}">×</button></div>`).join('');
 
@@ -461,7 +470,8 @@ export async function telaAlimentacao() {
     <div class="acoes"><button class="btn p" data-a="aalim">Adicionar</button></div>
   </div>
 
-  <div class="card sec"><h2>Itens do dia</h2>${grupos}</div>
+  <div class="card sec"><h2>Itens do dia</h2>
+    <div class="sub">Segure e arraste um item para mudá-lo de refeição — ou edite e use o seletor.</div>${grupos}</div>
 
   <div class="card sec"><h2>Alimentos por 100 g</h2>
     <div class="sub">As referências por 100 g de cada alimento: calorias e macros (P, C e G). Salvar um item nunca altera estes valores — eles só mudam aqui.</div>
@@ -478,7 +488,7 @@ export async function telaAlimentacao() {
   </div>
 
   <div class="card sec"><h2>Refeições</h2>
-    <div class="sub">Renomeie, crie ou remova refeições. Só é possível remover refeições sem itens.</div>
+    <div class="sub">Renomeie, crie ou remova refeições. Arraste pela alça ⋮⋮ para reordenar. Só é possível remover refeições sem itens.</div>
     ${gerenciar}
     <div class="frm" style="margin-top:8px"><div style="grid-column:1/-1"><label>Nova refeição</label><input id="alimRefNovo" placeholder="ex.: Ceia" aria-label="Nova refeição"></div></div>
     <div class="acoes"><button class="btn" data-a="alimrefadd">Adicionar refeição</button></div>
@@ -575,7 +585,8 @@ export async function aoClicar(a, b) {
     try {
       await editarItem(v, {
         gramas: (document.getElementById('alimEditG') || {}).value,
-        calorias: (document.getElementById('alimEditK') || {}).value
+        calorias: (document.getElementById('alimEditK') || {}).value,
+        refeicaoId: (document.getElementById('alimEditRef') || {}).value
       });
       state.alimEdit = null;
       state.alimEditRef = null;
@@ -632,6 +643,23 @@ export async function aoClicar(a, b) {
       const div = f && divergenciaKcal(f);
       await render();
       aviso(div ? `⚠ ${div}` : 'Alimento adicionado ✓');
+    } catch (err) {
+      aviso(err.message);
+    }
+    return true;
+  }
+
+  if (a === 'alalimdel') {
+    try {
+      const nome = b.dataset.n || '';
+      const usado = +(b.dataset.u || 0) > 0;
+      if (usado && typeof window !== 'undefined' && typeof window.confirm === 'function') {
+        const okExcluir = window.confirm(`Excluir "${nome}" do catálogo?\nOs registros já feitos não mudam, mas as referências por 100 g são perdidas.`);
+        if (!okExcluir) return true;
+      }
+      await removerAlimento(+b.dataset.v);
+      await render();
+      aviso('Alimento removido ✓');
     } catch (err) {
       aviso(err.message);
     }
@@ -814,6 +842,173 @@ export function tratarTecladoLista(e) {
   }
 
   return false;
+}
+
+/* --- Arrastar: ordem das refeições e itens entre refeições --- */
+
+const LIMIAR_ITEM = 400; // ms de pressão (toque) antes de pegar um item
+let pressao = null;      // pointer pressionado, ainda sem arrastar
+let arrastando = null;   // arraste em andamento
+let ultimoArraste = 0;   // fim do último arraste (suprime o swipe de trocar exercício)
+
+/** True while a drag runs or just ended — used to mute the exercise swipe. */
+export function arrasteAtivo() {
+  return arrastando !== null || Date.now() - ultimoArraste < 600;
+}
+
+function bloquearScroll(ev) {
+  ev.preventDefault();
+}
+
+function ligarBloqueioScroll() {
+  document.addEventListener('touchmove', bloquearScroll, { passive: false });
+}
+
+function desligarBloqueioScroll() {
+  document.removeEventListener('touchmove', bloquearScroll);
+}
+
+function posicionarFantasma(x, y) {
+  const a = arrastando;
+  if (!a) return;
+  a.fantasma.style.left = `${x - a.dx}px`;
+  a.fantasma.style.top = `${y - a.dy}px`;
+}
+
+function iniciarArraste(tipo, linha, x, y, pid) {
+  const r = linha.getBoundingClientRect();
+  const fantasma = linha.cloneNode(true);
+  fantasma.classList.add('arraste-fantasma');
+  fantasma.style.width = `${r.width}px`;
+  document.body.appendChild(fantasma);
+  linha.classList.add('arrastando');
+  arrastando = {
+    tipo,
+    origem: linha,
+    fantasma,
+    dx: x - r.left,
+    dy: y - r.top,
+    pid,
+    grupo: null,
+    ordemOriginal: tipo === 'ordem' ? idsOrdem(linha.parentNode) : null
+  };
+  posicionarFantasma(x, y);
+  ligarBloqueioScroll();
+  try { linha.setPointerCapture && linha.setPointerCapture(pid); } catch (_) { /* sem suporte */ }
+}
+
+function idsOrdem(pai) {
+  return [...pai.querySelectorAll('[data-ordem]')].map(el => el.dataset.ordem);
+}
+
+function elementoEm(x, y) {
+  return document.elementFromPoint ? document.elementFromPoint(x, y) : null;
+}
+
+function aoPressionar(e) {
+  if (arrastando || pressao || e.isPrimary === false) return;
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  const alvo = e.target;
+  if (!alvo || !alvo.closest) return;
+
+  const alca = alvo.closest('[data-alca]');
+  if (alca) {
+    const linha = alca.closest('[data-ordem]');
+    if (linha) iniciarArraste('ordem', linha, e.clientX, e.clientY, e.pointerId);
+    return;
+  }
+
+  const linha = alvo.closest('[data-item]');
+  if (!linha || alvo.closest('button,input,select,textarea,a')) return;
+
+  // Toque/pen: long-press para não brigar com o scroll; mouse arrasta na hora.
+  if (e.pointerType === 'mouse') {
+    iniciarArraste('item', linha, e.clientX, e.clientY, e.pointerId);
+    return;
+  }
+  pressao = { x: e.clientX, y: e.clientY, linha, pid: e.pointerId };
+  pressao.timer = setTimeout(() => {
+    const p = pressao;
+    pressao = null;
+    if (p) iniciarArraste('item', p.linha, p.x, p.y, p.pid);
+  }, LIMIAR_ITEM);
+}
+
+function aoMover(e) {
+  if (!arrastando) {
+    if (pressao && (Math.abs(e.clientX - pressao.x) > 8 || Math.abs(e.clientY - pressao.y) > 8)) {
+      clearTimeout(pressao.timer);
+      pressao = null;
+    }
+    return;
+  }
+  posicionarFantasma(e.clientX, e.clientY);
+
+  const el = elementoEm(e.clientX, e.clientY);
+  if (arrastando.tipo === 'item') {
+    const grupo = el && el.closest ? el.closest('[data-grupo]') : null;
+    if (arrastando.grupo !== grupo) {
+      if (arrastando.grupo) arrastando.grupo.classList.remove('alvo');
+      arrastando.grupo = grupo;
+      if (grupo) grupo.classList.add('alvo');
+    }
+    return;
+  }
+
+  const alvo = el && el.closest ? el.closest('[data-ordem]') : null;
+  const a = arrastando;
+  if (!alvo || alvo === a.origem || alvo.parentNode !== a.origem.parentNode) return;
+  const r = alvo.getBoundingClientRect();
+  const depois = e.clientY > r.top + r.height / 2;
+  alvo.parentNode.insertBefore(a.origem, depois ? alvo.nextSibling : alvo);
+}
+
+async function aoSoltar() {
+  if (pressao) {
+    clearTimeout(pressao.timer);
+    pressao = null;
+  }
+  const a = arrastando;
+  if (!a) return;
+  arrastando = null;
+  ultimoArraste = Date.now();
+  desligarBloqueioScroll();
+  a.fantasma.remove();
+  a.origem.classList.remove('arrastando');
+  try { a.origem.releasePointerCapture && a.origem.releasePointerCapture(a.pid); } catch (_) { /* já solto */ }
+
+  try {
+    if (a.tipo === 'item') {
+      const grupo = a.grupo;
+      if (grupo) grupo.classList.remove('alvo');
+      const destino = grupo ? String(grupo.dataset.grupo || '') : '';
+      const origemId = String(a.origem.dataset.ref || '');
+      if (!destino || destino === origemId) return;
+      await aguardarGravacoes();
+      await moverItem(+a.origem.dataset.item, destino);
+      await render();
+      aviso('Item movido ✓');
+      return;
+    }
+
+    const nova = idsOrdem(a.origem.parentNode);
+    if (!nova.some((id, i) => id !== a.ordemOriginal[i])) return;
+    await aguardarGravacoes();
+    await reordenarRefeicoes(nova);
+    await render();
+    aviso('Ordem das refeições salva ✓');
+  } catch (err) {
+    aviso(err.message);
+    await render();
+  }
+}
+
+/** Pointer listeners of the drag-and-drop (call once, after the DOM exists). */
+export function registrarArraste() {
+  document.addEventListener('pointerdown', aoPressionar);
+  document.addEventListener('pointermove', aoMover);
+  document.addEventListener('pointerup', aoSoltar);
+  document.addEventListener('pointercancel', aoSoltar);
 }
 
 registrarTela('alim', { render: telaAlimentacao });

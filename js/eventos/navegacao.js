@@ -4,7 +4,7 @@
  */
 
 import { moverEx } from '../telas/treino.js';
-import { tratarTecladoLista } from '../telas/alimentacao.js';
+import { tratarTecladoLista, arrasteAtivo } from '../telas/alimentacao.js';
 
 let navX = 0, navY = 0, navAlvo = null;
 
@@ -20,6 +20,7 @@ export function registrarNavegacao() {
     const alvo = navAlvo;
     navAlvo = null;
     if (!alvo || !e.changedTouches.length) return;
+    if (arrasteAtivo()) return; // o gesto pertence ao arraste da alimentação
 
     const dx = e.changedTouches[0].clientX - navX;
     const dy = e.changedTouches[0].clientY - navY;

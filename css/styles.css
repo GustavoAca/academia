@@ -1154,3 +1154,42 @@ input, select, textarea {
     font-size:16px
   }
 }
+
+/* --- 13. Arrastar: ordem das refeições e itens entre refeições ---------- */
+.alca {
+  cursor:grab;
+  touch-action:none;
+  user-select:none;
+  -webkit-user-select:none;
+  color:var(--mut);
+  font-size:13px;
+  line-height:1;
+  padding:10px 2px;
+  flex:none;
+  display:flex;
+  align-items:center
+}
+
+.alca:active {
+  cursor:grabbing
+}
+
+.arraste-fantasma {
+  position:fixed;
+  z-index:70;
+  margin:0;
+  pointer-events:none;
+  opacity:.9;
+  box-shadow:0 10px 28px rgba(0,0,0,.3);
+  border-color:var(--ac)
+}
+
+.li.arrastando {
+  opacity:.35
+}
+
+.grupo-dia.alvo {
+  outline:2px dashed var(--ac);
+  outline-offset:6px;
+  border-radius:14px
+}

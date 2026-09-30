@@ -19,6 +19,7 @@ import {
   getFoodEntry,
   updateFoodEntry,
   deleteFoodEntry,
+  deleteFood,
   upsertFood,
   getFoodByNome,
   getAllFoods,
@@ -178,6 +179,25 @@ async function removerRefeicao(id) {
   }
 
   return salvarRefeicoes(lista.filter(r => r.id !== id));
+}
+
+/**
+ * Save a new display order for the meals (drag-and-drop in the manage card).
+ * The list must be a permutation of the current ids; nothing else about the
+ * meals is touched.
+ * @param {string[]} ids - every meal id in the new order
+ * @returns {Promise<Array>} the reordered list
+ */
+async function reordenarRefeicoes(ids) {
+  if (!Array.isArray(ids) || !ids.length || ids.some(i => !i || typeof i !== 'string')) {
+    throw new Error('Ordem de refeições inválida');
+  }
+  const lista = await getRefeicoes();
+  const porId = new Map(lista.map(r => [r.id, r]));
+  if (ids.length !== lista.length || ids.some(i => !porId.has(i))) {
+    throw new Error('Ordem de refeições inválida');
+  }
+  return salvarRefeicoes(ids.map(i => porId.get(i)));
 }
 
 /* --- Meta calórica diária --- */
@@ -392,6 +412,18 @@ async function removerItem(id) {
 }
 
 /**
+ * Remove a food from the catalog. Logged entries are untouched: they keep
+ * their name, calories and macros (snapshotted when they were recorded).
+ * @param {number|string} id - catalog food id
+ * @returns {Promise<void>}
+ */
+async function removerAlimento(id) {
+  const n = Number(id);
+  if (!isFinite(n) || n <= 0) throw new Error('Alimento não encontrado');
+  await deleteFood(n);
+}
+
+/**
  * Keep the "last used" fields of a catalog food in sync when its newest entry
  * is edited. Never touches the calorie reference or the usage count.
  * @param {string} chave - lowercase food key
@@ -422,16 +454,26 @@ async function atualizarUltimosDoCatalogo(chave, entry, novos) {
 }
 
 /**
- * Change the grams and/or the calories of a day's item without removing it.
- * With a calorie reference (catalog first, then the entry's own) the calories
- * are recalculated from the grams; otherwise the typed calories are used.
+ * Change the grams, the calories and/or the meal of a day's item without
+ * removing it. With a calorie reference (catalog first, then the entry's own)
+ * the calories are recalculated from the grams; otherwise the typed calories
+ * are used.
  * @param {number} id - food entry id
- * @param {Object} p - { gramas, calorias } (null/undefined keeps the current value)
+ * @param {Object} p - { gramas, calorias, refeicaoId } (null/undefined keeps the current value)
  * @returns {Promise<Object>} the updated entry
  */
 async function editarItem(id, p) {
   const atual = await getFoodEntry(id);
   if (!atual) throw new Error('Registro não encontrado');
+
+  const refeicaoIdRaw = p && p.refeicaoId !== undefined && p.refeicaoId !== null
+    ? String(p.refeicaoId).trim()
+    : null;
+  if (refeicaoIdRaw !== null) {
+    if (!refeicaoIdRaw) throw new Error('Escolha a refeição');
+    const refeicoes = await getRefeicoes();
+    if (!refeicoes.some(r => r.id === refeicaoIdRaw)) throw new Error('Escolha a refeição');
+  }
 
   const gramasRaw = p && p.gramas !== undefined && p.gramas !== null ? String(p.gramas).trim() : null;
   const caloriasRaw = p && p.calorias !== undefined && p.calorias !== null ? String(p.calorias).trim() : null;
@@ -464,6 +506,7 @@ async function editarItem(id, p) {
   }
 
   const salvo = await updateFoodEntry(id, {
+    ...(refeicaoIdRaw !== null ? { refeicaoId: refeicaoIdRaw } : {}),
     gramas,
     calorias,
     kcal100: kcal100 !== null ? kcal100 : (gramas !== null ? r1(calorias / gramas * 100) : null),
@@ -476,6 +519,21 @@ async function editarItem(id, p) {
   await atualizarUltimosDoCatalogo(chave, atual, { gramas, calorias, kcal100 });
 
   return salvo;
+}
+
+/**
+ * Move a day's item to another meal (drag-and-drop between groups).
+ * The target meal is validated before the database is touched.
+ * @param {number} id - food entry id
+ * @param {string} refeicaoId - target meal id
+ * @returns {Promise<Object>} the updated entry
+ */
+async function moverItem(id, refeicaoId) {
+  const destino = String(refeicaoId == null ? '' : refeicaoId).trim();
+  if (!destino) throw new Error('Escolha a refeição');
+  const refeicoes = await getRefeicoes();
+  if (!refeicoes.some(r => r.id === destino)) throw new Error('Escolha a refeição');
+  return editarItem(id, { refeicaoId: destino });
 }
 
 /* --- Backfill de macros para registros antigos --- */
@@ -771,6 +829,7 @@ export {
   criarRefeicao,
   renomearRefeicao,
   removerRefeicao,
+  reordenarRefeicoes,
   getMeta,
   salvarMeta,
   getMetaMacros,
@@ -782,7 +841,9 @@ export {
   backfillMacros,
   adicionarItem,
   removerItem,
+  removerAlimento,
   editarItem,
+  moverItem,
   buscarAlimento,
   salvarReferencia,
   getItensDoDia,

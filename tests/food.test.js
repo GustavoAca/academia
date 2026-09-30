@@ -12,12 +12,17 @@ import {
   backfillMacros,
   salvarReferencia,
   salvarMetaMacros,
-  adicionarItem
+  adicionarItem,
+  removerAlimento,
+  moverItem,
+  reordenarRefeicoes
 } from '../js/food-service.js';
 import * as rotinaTela from '../js/telas/rotina.js';
 import * as relatorioTela from '../js/telas/relatorio.js';
 import * as medidasTela from '../js/telas/medidas.js';
 import * as treinoTela from '../js/telas/treino.js';
+import * as focoTela from '../js/telas/foco.js';
+import * as globais from '../js/eventos/globais.js';
 import * as alimentacaoTela from '../js/telas/alimentacao.js';
 
 test('kcalDosMacros derives calories from the 4/4/9 macros', () => {
@@ -154,4 +159,63 @@ test('macro fields are consumed only by the alimentação screen', async () => {
   assert.equal(await alimentacaoTela.aoMudar(eventoCampo({ k: 'alimmetaprot' }, '130')), true);
   assert.equal(await alimentacaoTela.aoMudar(eventoCampo({ k: 'alcarb', n: 'Frango' }, '20')), true);
   assert.equal(await alimentacaoTela.aoMudar(eventoCampo({ k: 'outro' }, 'x')), false);
+});
+
+test('removerAlimento validates the id before the database', async () => {
+  await assert.rejects(removerAlimento(), /Alimento não encontrado/);
+  await assert.rejects(removerAlimento(''), /Alimento não encontrado/);
+  await assert.rejects(removerAlimento('abc'), /Alimento não encontrado/);
+  await assert.rejects(removerAlimento(-2), /Alimento não encontrado/);
+
+  // id válido: a validação passa e a remoção chega ao banco
+  await assert.rejects(
+    removerAlimento(7),
+    err => err instanceof ReferenceError && /indexedDB/.test(err.message)
+  );
+});
+
+test('moverItem validates the target meal before the database', async () => {
+  await assert.rejects(moverItem(1, ''), /Escolha a refeição/);
+  await assert.rejects(moverItem(1, null), /Escolha a refeição/);
+  await assert.rejects(moverItem(1, '  '), /Escolha a refeição/);
+
+  // destino desconhecido também não chega ao banco (getRefeicoes sim)
+  await assert.rejects(
+    moverItem(1, 'inexistente'),
+    err => err instanceof ReferenceError && /indexedDB/.test(err.message)
+  );
+});
+
+test('reordenarRefeicoes validates the id list before the database', async () => {
+  await assert.rejects(reordenarRefeicoes(), /Ordem de refeições inválida/);
+  await assert.rejects(reordenarRefeicoes('cafe'), /Ordem de refeições inválida/);
+  await assert.rejects(reordenarRefeicoes([]), /Ordem de refeições inválida/);
+  await assert.rejects(reordenarRefeicoes([1, 2]), /Ordem de refeições inválida/, 'ids precisam ser texto');
+  await assert.rejects(reordenarRefeicoes(['cafe', null]), /Ordem de refeições inválida/);
+
+  // lista bem formada: a leitura das refeições chega ao banco
+  await assert.rejects(
+    reordenarRefeicoes(['cafe', 'almoco']),
+    err => err instanceof ReferenceError && /indexedDB/.test(err.message)
+  );
+});
+
+test('catalog deletion action is consumed only by the alimentação screen', async () => {
+  const b = { dataset: { a: 'alalimdel', v: '1', n: 'Iogurte', u: '0' } };
+
+  // clique: todas as telas antes da alimentação precisam devolver false
+  const outras = [
+    ['globais', globais],
+    ['treino', treinoTela],
+    ['rotina', rotinaTela],
+    ['foco', focoTela],
+    ['medidas', medidasTela],
+    ['relatorio', relatorioTela]
+  ];
+  for (const [nome, tela] of outras) {
+    assert.equal(await tela.aoClicar('alalimdel', b), false, `${nome} não engole alalimdel`);
+  }
+
+  // a alimentação consome (sem confirm no stub de window, o banco falha no Node)
+  assert.equal(await alimentacaoTela.aoClicar('alalimdel', b), true);
 });
