@@ -24,6 +24,7 @@ export const state = {
   relSec: 'treino', // report section: 'treino' | 'corpo' | 'alim'
   alimEdit: null,   // id of the day's item being edited (Alimentação screen)
   alimEditRef: null, // kcal per 100 g of the item being edited
+  alimCriar: false,  // show the catalog's "new food" form (Alimentação screen)
   ajustes: { circular: true, pct: true }, // exibição (ajustes-service, recarregado no boot)
   foco: { passo: 1, grupos: [], dias: 4 } // wizard da aba Foco
 };

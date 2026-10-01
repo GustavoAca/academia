@@ -139,20 +139,21 @@ function linhaSugestao(f) {
   return `<button type="button" class="li" data-a="alimsel" data-n="${esc(nome)}"><span class="n"><b>${esc(nome)}</b><small>${ref}${macros ? ' · ' + macros : ''} · ${usos}</small></span></button>`;
 }
 
-function linhaCatalogo(f) {
+export function linhaCatalogo(f) {
   const nome = f.exibicao || f.nome || '';
-  const inp = (k, v, rot) => `<input class="sel ref" data-k="${k}" data-n="${esc(f.nome)}" inputmode="decimal" value="${temRef(v) ? String(v).replace('.', ',') : ''}" placeholder="?" aria-label="${rot} por 100 g de ${esc(nome)}">`;
-  const macro = (k, v, letra, rot) => `<span class="macro"><span class="letra">${letra}</span>${inp(k, v, rot)}</span>`;
-  return `<div class="li catlinha">
-    <span class="n"><b>${esc(nome)}</b><small>${f.vezes || 0} registro${(f.vezes || 0) === 1 ? '' : 's'}</small></span>
-    <span class="kcal">${inp('alkcal', f.kcal100, 'Calorias')}<span class="rot">kcal/100 g</span></span>
-    <div class="macros">
-      <span class="g100">g/100 g:</span>
-      ${macro('alprot', f.prot100, 'Prot', 'Proteína')}
-      ${macro('alcarb', f.carb100, 'Carb', 'Carboidrato')}
-      ${macro('algord', f.gord100, 'Gord', 'Gordura')}
-      <button class="btn" data-a="alalimdel" data-v="${f.id === undefined || f.id === null ? '' : f.id}" data-n="${esc(nome)}" data-u="${f.vezes || 0}" aria-label="Excluir ${esc(nome)} do catálogo">×</button>
-    </div></div>`;
+  const inp = (k, v, rot) => `<div><label>${rot}</label><input class="sel" data-k="${k}" data-n="${esc(f.nome)}" inputmode="decimal" value="${temRef(v) ? String(v).replace('.', ',') : ''}" placeholder="?" aria-label="${rot} por 100 g de ${esc(nome)}"></div>`;
+  return `<div class="pl-li">
+    <div class="pl-top">
+      <span class="pl-n"><b>${esc(nome)}</b><small>${f.vezes || 0} registro${(f.vezes || 0) === 1 ? '' : 's'}</small></span>
+      <button class="btn pl-x" data-a="alalimdel" data-v="${f.id === undefined || f.id === null ? '' : f.id}" data-n="${esc(nome)}" data-u="${f.vezes || 0}" aria-label="Excluir ${esc(nome)} do catálogo">×</button>
+    </div>
+    <div class="frm">
+      ${inp('alkcal', f.kcal100, 'Calorias')}
+      ${inp('alprot', f.prot100, 'Proteína')}
+      ${inp('alcarb', f.carb100, 'Carboidrato')}
+      ${inp('algord', f.gord100, 'Gordura')}
+    </div>
+  </div>`;
 }
 
 export function htmlSugestoes() {
@@ -168,7 +169,7 @@ export function htmlSugestoes() {
 export function htmlCatalogo() {
   const st = catState;
   const corpo = st.itens.length
-    ? st.itens.map(linhaCatalogo).join('')
+    ? `<div class="planilha">${st.itens.map(linhaCatalogo).join('')}</div>`
     : `<div class="meta">${st.termo ? 'Nenhum alimento encontrado.' : 'Nenhum alimento no catálogo ainda.'}</div>`;
   const contagem = st.itens.length
     ? `<div class="meta" style="text-align:center;font-size:12px">${st.itens.length}${st.total ? ` de ${st.total}` : ''}</div>`
@@ -358,10 +359,10 @@ export async function atualizarAlimAuto(prefill) {
   }
 }
 /** Row of a day's item: read mode (edit/remove) or inline editor. */
-function linhaItemDia(i, opts) {
+export function linhaItemDia(i, opts) {
   const gramas = i.gramas !== null && i.gramas !== undefined ? f1(i.gramas) + ' g · ' : '';
   if (state.alimEdit !== i.id) {
-    return `<div class="li" data-item="${i.id}" data-ref="${esc(i.refeicaoId || '')}"><span class="n"><b>${esc(i.alimento)}</b><small>${gramas}${f1(i.calorias)} kcal${macrosItemTxt(i)}</small></span>
+    return `<div class="li" data-item="${i.id}" data-ref="${esc(i.refeicaoId || '')}"><span class="alca" data-alca title="Arraste para trocar de refeição" aria-label="Arraste ${esc(i.alimento)} para outra refeição">⋮⋮</span><span class="n"><b>${esc(i.alimento)}</b><small>${gramas}${f1(i.calorias)} kcal${macrosItemTxt(i)}</small></span>
       <button class="btn" style="width:40px;height:40px;flex:none" data-a="ialimedit" data-v="${i.id}" data-n="${esc(i.alimento)}" data-r="${i.kcal100 === null || i.kcal100 === undefined ? '' : i.kcal100}" aria-label="Editar item ${esc(i.alimento)}">✎</button>
       <button class="btn" style="width:40px;height:40px;flex:none" data-a="iremoveralim" data-v="${i.id}" aria-label="Remover item">×</button></div>`;
   }
@@ -497,20 +498,21 @@ export async function telaAlimentacao() {
   </div>
 
   <div class="card sec"><h2>Itens do dia</h2>
-    <div class="sub">Segure e arraste um item para mudá-lo de refeição — ou edite e use o seletor.</div>${grupos}</div>
+    <div class="sub">Arraste pela alça ⋮⋮ para trocar o item de refeição (ou segure o item) — ou edite e use o seletor.</div>${grupos}</div>
 
   <div class="card sec"><h2>Alimentos por 100 g</h2>
-    <div class="sub">As referências por 100 g de cada alimento: calorias e macros (P, C e G). Salvar um item nunca altera estes valores — eles só mudam aqui.</div>
+    <div class="sub">Valores por 100 g: calorias em kcal e macros em gramas. Edite direto na planilha — registrar no dia não altera nada aqui.</div>
     <input class="sel" id="alimCatBusca" data-k="alimcatbusca" placeholder="Buscar alimento…" aria-label="Buscar alimento por 100 g" autocomplete="off" style="margin-bottom:10px">
     <div id="alimCatLista" class="lista-scroll">${htmlCatalogo()}</div>
-    <div class="frm" style="margin-top:8px">
+    ${state.alimCriar ? `<div class="frm" style="margin-top:8px">
       <div style="grid-column:1/-1"><label>Novo alimento</label><input id="alimAlNovo" placeholder="ex.: Iogurte natural" aria-label="Novo alimento"></div>
-      <div><label>Calorias por 100 g</label><input id="alimKcalNovo" inputmode="decimal" placeholder="ex.: 60" aria-label="Calorias por 100 gramas"></div>
-      <div><label>Proteína (g/100 g)</label><input id="alimProtNovo" inputmode="decimal" placeholder="ex.: 20" aria-label="Proteína por 100 gramas"></div>
-      <div><label>Carboidrato (g/100 g)</label><input id="alimCarbNovo" inputmode="decimal" placeholder="ex.: 4" aria-label="Carboidrato por 100 gramas"></div>
-      <div><label>Gordura (g/100 g)</label><input id="alimGordNovo" inputmode="decimal" placeholder="ex.: 9" aria-label="Gordura por 100 gramas"></div>
+      <div><label>Calorias</label><input id="alimKcalNovo" inputmode="decimal" placeholder="ex.: 60" aria-label="Calorias por 100 gramas"></div>
+      <div><label>Proteína</label><input id="alimProtNovo" inputmode="decimal" placeholder="ex.: 20" aria-label="Proteína por 100 gramas"></div>
+      <div><label>Carboidrato</label><input id="alimCarbNovo" inputmode="decimal" placeholder="ex.: 4" aria-label="Carboidrato por 100 gramas"></div>
+      <div><label>Gordura</label><input id="alimGordNovo" inputmode="decimal" placeholder="ex.: 9" aria-label="Gordura por 100 gramas"></div>
     </div>
-    <div class="acoes"><button class="btn" data-a="alrefadd">Adicionar alimento</button></div>
+    <div class="acoes"><button class="btn p" data-a="alrefadd">Adicionar alimento</button><button class="btn" data-a="alcancelar">Cancelar</button></div>`
+    : `<div class="acoes"><button class="btn" data-a="alcriar">Criar item</button></div>`}
   </div>
 
   <div class="card sec"><h2>Refeições</h2>
@@ -648,6 +650,18 @@ export async function aoClicar(a, b) {
     return true;
   }
 
+  if (a === 'alcriar') {
+    state.alimCriar = true;
+    await render();
+    return true;
+  }
+
+  if (a === 'alcancelar') {
+    state.alimCriar = false;
+    await render();
+    return true;
+  }
+
   if (a === 'alrefadd') {
     const alNovo = document.getElementById('alimAlNovo');
     try {
@@ -667,6 +681,7 @@ export async function aoClicar(a, b) {
       }
       const f = await buscarAlimento(nome);
       const div = f && divergenciaKcal(f);
+      state.alimCriar = false;
       await render();
       aviso(div ? `⚠ ${div}` : 'Alimento adicionado ✓');
     } catch (err) {
@@ -939,8 +954,12 @@ function aoPressionar(e) {
 
   const alca = alvo.closest('[data-alca]');
   if (alca) {
-    const linha = alca.closest('[data-ordem]');
-    if (linha) iniciarArraste('ordem', linha, e.clientX, e.clientY, e.pointerId);
+    const ordem = alca.closest('[data-ordem]');
+    if (ordem) iniciarArraste('ordem', ordem, e.clientX, e.clientY, e.pointerId);
+    else {
+      const item = alca.closest('[data-item]');
+      if (item) iniciarArraste('item', item, e.clientX, e.clientY, e.pointerId);
+    }
     return;
   }
 

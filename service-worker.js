@@ -8,7 +8,7 @@
  */
 
 // Bump the version whenever cached assets change so clients drop stale copies.
-const CACHE_VERSION = 'treino-cache-v25';
+const CACHE_VERSION = 'treino-cache-v29';
 let cacheName = `treino-${CACHE_VERSION}`;
 
 // We'll determine the base path dynamically during install
@@ -56,6 +56,7 @@ self.addEventListener('install', (event) => {
         'js/cardio-service.js',
         'js/food-service.js',
         'js/timer-service.js',
+        'js/ajustes-service.js',
         'js/core/utils.js',
         'js/core/estado.js',
         'js/core/toast.js',
@@ -77,6 +78,7 @@ self.addEventListener('install', (event) => {
         'js/telas/relatorio.js',
         'js/telas/rotina.js',
         'js/telas/foco.js',
+        'js/telas/configuracoes.js',
       ];
 
       // Cache each asset

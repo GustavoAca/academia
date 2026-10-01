@@ -24,6 +24,7 @@ import * as treinoTela from '../js/telas/treino.js';
 import * as focoTela from '../js/telas/foco.js';
 import * as globais from '../js/eventos/globais.js';
 import * as alimentacaoTela from '../js/telas/alimentacao.js';
+import { state } from '../js/core/estado.js';
 
 test('kcalDosMacros derives calories from the 4/4/9 macros', () => {
   assert.equal(kcalDosMacros({ carb100: 0, gord100: 10, prot100: 20 }), 170);
@@ -218,4 +219,51 @@ test('catalog deletion action is consumed only by the alimentação screen', asy
 
   // a alimentação consome (sem confirm no stub de window, o banco falha no Node)
   assert.equal(await alimentacaoTela.aoClicar('alalimdel', b), true);
+});
+
+test('a linha do item do dia mostra a alça de arrastar no modo leitura', () => {
+  const item = { id: 7, alimento: 'Frango grelhado', refeicaoId: 'almoco', gramas: 150, calorias: 247, kcal100: 165 };
+  state.alimEdit = null;
+
+  const leitura = alimentacaoTela.linhaItemDia(item);
+  assert.match(leitura, /data-item="7"/);
+  assert.match(leitura, /<span class="alca" data-alca/, 'alça presente na linha de leitura');
+  assert.match(leitura, /⋮⋮/, 'símbolo de arrastar presente');
+  assert.match(leitura, /title="Arraste para trocar de refeição"/);
+
+  state.alimEdit = 7;
+  try {
+    const edicao = alimentacaoTela.linhaItemDia(item, '<option value="almoco">Almoço</option>');
+    assert.doesNotMatch(edicao, /data-alca/, 'o editor não oferece arrastar');
+    assert.match(edicao, /id="alimEditRef"/, 'o editor mostra o seletor de refeição');
+  } finally {
+    state.alimEdit = null;
+  }
+});
+
+test('o formulário de novo alimento abre e fecha por botão', async () => {
+  state.alimCriar = false;
+
+  assert.equal(await alimentacaoTela.aoClicar('alcriar', { dataset: {} }), true);
+  assert.equal(state.alimCriar, true, 'Criar item abre o formulário');
+
+  assert.equal(await alimentacaoTela.aoClicar('alcancelar', { dataset: {} }), true);
+  assert.equal(state.alimCriar, false, 'Cancelar fecha o formulário');
+
+  assert.equal(await alimentacaoTela.aoClicar('inexistente', { dataset: {} }), false, 'ação desconhecida não é consumida');
+});
+
+test('a linha do catálogo repete o layout do formulário de criação', () => {
+  const al = { id: 3, nome: 'Iogurte', exibicao: 'Iogurte natural', kcal100: 60, prot100: 20, carb100: 4, gord100: 9, vezes: 2 };
+  const html = alimentacaoTela.linhaCatalogo(al);
+
+  assert.match(html, /class="pl-li"/);
+  assert.match(html, /<div class="frm">/, 'grade de 2 colunas igual ao formulário');
+  assert.match(html, /<label>Calorias<\/label>/);
+  assert.match(html, /<label>Proteína<\/label>/);
+  assert.match(html, /<label>Carboidrato<\/label>/);
+  assert.match(html, /<label>Gordura<\/label>/);
+  assert.match(html, /data-k="alkcal"[^>]*value="60"/);
+  assert.match(html, /data-a="alalimdel"/, 'botão de excluir presente');
+  assert.match(html, /Iogurte natural/);
 });

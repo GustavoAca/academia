@@ -1194,64 +1194,48 @@ input, select, textarea {
   border-radius:14px
 }
 
-/* --- 14. Alimentação: catálogo por 100 g -------------------------------- */
-.catlinha {
-  padding:8px 10px;
-  flex-wrap:wrap;
-  row-gap:6px
+/* --- 14. Alimentação: planilha "por 100 g" ------------------------------ */
+.pl-li {
+  padding:10px 0;
+  border-bottom:1px solid var(--line)
 }
 
-.catlinha .n {
-  flex:1;
-  min-width:120px
+.planilha .pl-li:last-child {
+  border-bottom:0
 }
 
-.catlinha .ref {
-  width:64px;
-  flex:none;
-  height:34px;
-  font-size:13px
-}
-
-.catlinha .kcal {
+.pl-top {
   display:flex;
-  gap:12px;
-  align-items:center;
-  flex:none
-}
-
-.catlinha .kcal .rot {
-  font-size:12px;
-  color:var(--mut);
-  white-space:nowrap
-}
-
-.catlinha .macros {
-  display:flex;
-  gap:6px;
-  align-items:center;
-  width:100%;
-  flex-wrap:wrap
-}
-
-.catlinha .macro {
-  display:flex;
-  gap:6px;
+  gap:8px;
   align-items:center
 }
 
-.catlinha .macro .letra,
-.catlinha .g100 {
-  font-size:11px;
-  color:var(--mut);
+.pl-n {
+  flex:1;
+  min-width:0
+}
+
+.pl-n b, .pl-n small {
+  display:block;
+  overflow:hidden;
+  text-overflow:ellipsis;
   white-space:nowrap
 }
 
-.catlinha .macros .btn {
-  width:36px;
-  height:34px;
+.pl-n small {
+  color:var(--mut);
+  font-size:11.5px
+}
+
+.pl-li .frm {
+  margin-top:8px
+}
+
+.pl-x {
+  width:44px;
   flex:none;
-  margin-left:auto
+  padding:0;
+  font-size:16px
 }
 
 /* --- 15. Macros da meta em círculo e interruptores de ajustes ---------- */
@@ -1355,48 +1339,4 @@ input, select, textarea {
 
 .sw.on::after {
   transform:translateX(20px)
-}
-
-/* --- 16. Ecrã estreito: catálogo por 100 g empilhado ------------------- */
-@media (max-width:420px) {
-  .catlinha .n {
-    flex:none;
-    width:100%
-  }
-
-  .catlinha .kcal {
-    width:100%;
-    justify-content:space-between
-  }
-
-  .catlinha .kcal .ref {
-    width:auto;
-    flex:1;
-    height:44px;
-    font-size:16px
-  }
-
-  .catlinha .macros {
-    flex-direction:column;
-    align-items:stretch;
-    row-gap:8px
-  }
-
-  .catlinha .macro {
-    justify-content:space-between
-  }
-
-  .catlinha .macro .ref {
-    width:auto;
-    flex:1;
-    margin-left:12px;
-    height:44px;
-    font-size:16px
-  }
-
-  .catlinha .macros .btn {
-    align-self:flex-end;
-    height:40px;
-    min-height:40px
-  }
 }

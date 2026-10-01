@@ -35,7 +35,8 @@ export function moldura(titulo, corpo) {
  * @returns {Promise<void>}
  */
 export function render() {
-  filaRender = filaRender.then(executarRender, executarRender);
+  filaRender = filaRender.then(executarRender, executarRender)
+    .catch(err => console.error('Render:', err));
   return filaRender;
 }
 
