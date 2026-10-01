@@ -6,7 +6,11 @@
 import { DIAS, iso, hojeISO } from './utils.js';
 import { state, store } from './estado.js';
 import { iniDate, semanas, MAXS, dataDe } from './programa.js';
-import { dataParaDate, defsDoDia } from '../rotina-service.js';
+import { dataParaDate, defsDoDia, rotinaNaData } from '../rotina-service.js';
+
+/** Planned sets of one program date (uses the version in force that day). */
+const seriesPlanejadas = (data, dia) =>
+  defsDoDia(rotinaNaData(data, store.rotina), dia).reduce((a, x) => a + Number(x.series || 0), 0);
 
 /** Window used by the report screen: { dias, desde }. desde null = all time. */
 export function janelaRel() {
@@ -25,20 +29,14 @@ export function diasJanela(desde) {
 
 /** Planned sets inside the same window used by the report filter. */
 export function planoJanela(desde) {
-  if (!desde) {
-    let total = 0;
-    DIAS.forEach((k, d) => { total += defsDoDia(store.rotina, k).reduce((a, x) => a + Number(x.series || 0), 0) * MAXS(d); });
-    return total;
-  }
-
   const hoje = hojeISO();
   let total = 0;
   for (let s = 1; s <= semanas(); s++) {
     DIAS.forEach((k, d) => {
       if (s > MAXS(d)) return;
       const data = iso(dataDe(s, d));
-      if (data < desde || data > hoje) return;
-      total += defsDoDia(store.rotina, k).reduce((a, x) => a + Number(x.series || 0), 0);
+      if (desde && data < desde) return;
+      if (!desde || data <= hoje) total += seriesPlanejadas(data, k);
     });
   }
   return total;

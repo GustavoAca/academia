@@ -5,14 +5,15 @@
 
 import { DIAS, iso, ok, entradaDe } from './utils.js';
 import { state, store, gravar } from './estado.js';
-import { dataDe, defsAtuais, idsAtuais, passos, exAtual, treinoAtual } from './programa.js';
+import { dataDe, defsAtuais, idsAtuais, passos, exAtual, treinoAtual, catalogoEm } from './programa.js';
 import { getExecutionsByDate, upsertExecution, deleteExecution } from '../db.js';
 import { num } from '../measurement-service.js';
 import { getPulados, getCardiosByDate } from '../cardio-service.js';
 
 /**
  * Load the executions of the selected day/week into store.logAtual, keeping
- * only the exercises that belong to the current catalog.
+ * only the exercises that belong to the catalog of that date (past days use
+ * the routine version that was in force then).
  * @returns {Promise<void>}
  */
 export async function carregarLogDoDia() {
@@ -108,11 +109,11 @@ export async function primeiroPasso() {
  * @returns {Promise<Object|null>} { w, r }
  */
 export async function ultimo(d, s, e) {
-  const dia = DIAS[d];
-  const id = (store.catalogo[dia] || {}).ids[e];
+  const cat = catalogoEm(d, s);
+  const id = cat.ids[e];
   if (id === null || id === undefined) return null;
 
-  const n = store.catalogo[dia].defs[e][2];
+  const n = cat.defs[e][2];
 
   for (let w = s - 1; w >= 1; w--) {
     const execs = await getExecutionsByDate(iso(dataDe(w, d)));

@@ -5,7 +5,7 @@
  * Everything here reads from `store`/`state` and never touches the DOM.
  */
 
-import { DIAS } from './utils.js';
+import { DIAS, iso } from './utils.js';
 import { state, store } from './estado.js';
 import {
   dataParaDate,
@@ -13,7 +13,8 @@ import {
   rotinaPadrao,
   defsDoDia,
   diaAtivo,
-  cardioDoDia
+  cardioDoDia,
+  rotinaNaData
 } from '../rotina-service.js';
 import { getAllExercises, getAllWorkouts } from '../db.js';
 
@@ -40,14 +41,68 @@ export const dataDe = (s, d) => {
   return x;
 };
 
+const VAZIO = { workout: undefined, ids: [], defs: [] };
+const passadoCache = new Map();
+
+/**
+ * Routine in force on a program date (week `s`, weekday `d`). Today and the
+ * future answer with the active routine; past days answer with the version
+ * that was frozen when the routine last changed.
+ * @param {number} s - program week
+ * @param {number} d - day index 0..6
+ * @returns {Object|null}
+ */
+export function rotinaEm(s, d) {
+  return rotinaNaData(iso(dataDe(s, d)), store.rotina);
+}
+
+/** Routine in force on the selected date. */
+export const rotinaSelecionada = () => rotinaEm(state.s, state.d);
+
+/**
+ * Catalog (definitions + database ids + workout row) of a program date:
+ * the active catalog for today/future, a rebuilt one for past days whose
+ * routine version differed (so old logs keep matching).
+ * @param {number} d - day index 0..6
+ * @param {number} s - program week
+ * @returns {{workout: Object|null, ids: Array, defs: Array}}
+ */
+export function catalogoEm(d, s) {
+  const dia = DIAS[d];
+  const atual = store.rotina;
+  if (!atual) return store.catalogo[dia] || VAZIO;
+
+  const data = iso(dataDe(s, d));
+  const r = rotinaNaData(data, atual);
+  if (r === atual) return store.catalogo[dia] || VAZIO;
+
+  const chave = `${data}|${dia}`;
+  let cat = passadoCache.get(chave);
+  if (!cat) {
+    const defs = defsDoDia(r, dia).map(e => [e.nome, e.grupo, e.series, e.min, e.max]);
+    const ids = defs.map(x => {
+      const id = store.exerciseIdPorNome.get(x[0]);
+      return id === undefined ? null : id;
+    });
+    cat = { workout: store.workoutsPorDia.get(dia) || null, ids, defs };
+    passadoCache.set(chave, cat);
+  }
+  return cat;
+}
+
+/** Drop the cached past-day catalogs (after a routine/catalog reload). */
+export function limparCatalogoPassado() {
+  passadoCache.clear();
+}
+
 /** Routine definitions of the selected day. */
-export const defsAtuais = () => (store.catalogo[DIAS[state.d]] || {}).defs || [];
+export const defsAtuais = () => catalogoEm(state.d, state.s).defs;
 
 /** Database exercise ids of the selected day (null when missing). */
-export const idsAtuais = () => (store.catalogo[DIAS[state.d]] || {}).ids || [];
+export const idsAtuais = () => catalogoEm(state.d, state.s).ids;
 
-/** Workout row of the selected day, or undefined. */
-export const treinoAtual = () => (store.catalogo[DIAS[state.d]] || {}).workout;
+/** Workout row of the selected day, or undefined when it has no catalog. */
+export const treinoAtual = () => catalogoEm(state.d, state.s).workout;
 
 /**
  * Ordered flow of the selected day: the start cardio (when the user enabled
@@ -57,11 +112,12 @@ export const treinoAtual = () => (store.catalogo[DIAS[state.d]] || {}).workout;
  */
 export function passos() {
   const dia = DIAS[state.d];
+  const r = rotinaSelecionada();
   const defs = defsAtuais();
   const p = [];
-  if (cardioDoDia(store.rotina, dia, 'i').ativo) p.push({ k: 'cardio', m: 'i' });
-  if (diaAtivo(store.rotina, dia)) defs.forEach((_, i) => p.push({ k: 'ex', i }));
-  if (cardioDoDia(store.rotina, dia, 'f').ativo) p.push({ k: 'cardio', m: 'f' });
+  if (cardioDoDia(r, dia, 'i').ativo) p.push({ k: 'cardio', m: 'i' });
+  if (diaAtivo(r, dia)) defs.forEach((_, i) => p.push({ k: 'ex', i }));
+  if (cardioDoDia(r, dia, 'f').ativo) p.push({ k: 'cardio', m: 'f' });
   return p;
 }
 
@@ -83,18 +139,24 @@ export async function loadCatalogo() {
   const exercises = await getAllExercises();
   const workouts = await getAllWorkouts();
   store.exercisesById = new Map(exercises.map(e => [e.id, e]));
-  const byName = new Map(exercises.map(e => [e.nome, e]));
+  store.exerciseIdPorNome = new Map(exercises.map(e => [e.nome, e.id]));
+  store.workoutsPorDia = new Map();
+  for (const w of workouts) {
+    if (!store.workoutsPorDia.has(w.diaSemana)) store.workoutsPorDia.set(w.diaSemana, w);
+  }
+  const byName = store.exerciseIdPorNome;
 
   store.catalogo = {};
   for (const dia of DIAS) {
     const defs = defsDoDia(store.rotina, dia).map(e => [e.nome, e.grupo, e.series, e.min, e.max]);
-    const workout = workouts.find(w => w.diaSemana === dia) || null;
+    const workout = store.workoutsPorDia.get(dia) || null;
     const ids = defs.map(def => {
-      const exercise = byName.get(def[0]);
-      return exercise ? exercise.id : null;
+      const id = byName.get(def[0]);
+      return id === undefined ? null : id;
     });
     store.catalogo[dia] = { workout, ids, defs };
   }
+  limparCatalogoPassado();
 }
 
 /**

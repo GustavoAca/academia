@@ -3,11 +3,13 @@
  * duration) shared with the Foco preview.
  */
 
-import { DIAS, CURTO, LONGO, esc, brd } from '../core/utils.js';
+import { DIAS, CURTO, LONGO, esc, brd, hojeISO } from '../core/utils.js';
 import { state, store } from '../core/estado.js';
 import {
   rotinaPadrao,
   salvarRotina,
+  getRotinaHistorico,
+  prepararParaSalvar,
   totalSemanas,
   fimRotina,
   segundaDe,
@@ -39,11 +41,15 @@ export function editarRotina() {
 /**
  * Save the routine draft as the active routine and reload the catalog.
  * Shared by the Rotina screen (Salvar) and the Foco screen (Aplicar treino).
+ * The outgoing routine is frozen in the history: the change applies from
+ * today onwards and past days keep their original plan and logs.
  * @returns {Promise<boolean>} true when saved; errors are toasted to the user
  */
 export async function aplicarRascunho() {
   try {
-    const salva = await salvarRotina(rascunhoRotina());
+    const hist = await getRotinaHistorico();
+    const { r, travou } = prepararParaSalvar(rascunhoRotina(), store.rotina, hojeISO(), hist);
+    const salva = await salvarRotina(r);
     store.rotina = salva;
     store.rotinaRascunho = null;
     await sincronizarCatalogo(store.rotina);
@@ -51,6 +57,7 @@ export async function aplicarRascunho() {
     posicaoInicial();
     state.e = 0;
     state.lista = false;
+    state.rotinaTravou = travou;
     return true;
   } catch (err) {
     console.error('Erro ao salvar rotina:', err);
@@ -89,7 +96,7 @@ export function telaRotina() {
   <div class="card sec"><h2>Dias de treino</h2><div class="sub">Marque os dias em que você treina. Os dias livres viram descanso.</div>${dias}</div>
   ${cards || '<div class="card"><div class="meta">Marque pelo menos um dia acima.</div></div>'}
   <div class="acoes"><button class="btn p" data-a="rsalvar">Salvar rotina</button><button class="btn" data-a="rpadrao">Restaurar padrão</button></div>
-  <div class="meta" style="margin-top:8px">A semana 1 começa em ${brd(ini)}. Séries já registradas continuam no relatório.</div>`;
+  <div class="meta" style="margin-top:8px">A semana 1 começa em ${brd(ini)}. Alterações valem de hoje em diante: os dias antigos mantêm o plano e os registros originais.</div>`;
 
   return moldura('Minha rotina de treino', corpo);
 }
@@ -109,6 +116,8 @@ export function cardDiaRotina(r, dia) {
   const linhas = t.ex.map((ex, idx) => `<div class="li" style="flex-direction:column;align-items:stretch;gap:8px">
     <div style="display:flex;gap:8px;align-items:center">
       <span class="n" style="flex:1;min-width:0"><b>${esc(ex.nome)}</b><small>${esc(ex.grupo)}</small></span>
+      <button class="btn" style="width:40px;height:40px;flex:none" data-a="rmover" data-d="${dia}" data-i="${idx}" data-dir="-1" ${idx === 0 ? 'disabled' : ''} aria-label="Subir ${esc(ex.nome)}">↑</button>
+      <button class="btn" style="width:40px;height:40px;flex:none" data-a="rmover" data-d="${dia}" data-i="${idx}" data-dir="1" ${idx === t.ex.length - 1 ? 'disabled' : ''} aria-label="Descer ${esc(ex.nome)}">↓</button>
       <button class="btn" style="width:40px;height:40px;flex:none" data-a="rremover" data-d="${dia}" data-i="${idx}" aria-label="Remover ${esc(ex.nome)}">×</button>
     </div>
     <div style="display:flex;gap:8px">
@@ -224,6 +233,19 @@ export async function aoClicar(a, b) {
     return true;
   }
 
+  if (a === 'rmover') {
+    const r = editarRotina();
+    const t = r.treinos[b.dataset.d];
+    const i = +(b.dataset.i || 0);
+    const j = i + (Number(b.dataset.dir) === -1 ? -1 : 1);
+    if (t && t.ex[i] && j >= 0 && j < t.ex.length) {
+      const [ex] = t.ex.splice(i, 1);
+      t.ex.splice(j, 0, ex);
+    }
+    await render();
+    return true;
+  }
+
   if (a === 'rcriar') {
     const d = b.dataset.d;
     const nomeEl = document.querySelector(`[data-k="rnovo"][data-d="${d}"]`);
@@ -251,7 +273,9 @@ export async function aoClicar(a, b) {
   if (a === 'rsalvar') {
     if (await aplicarRascunho()) {
       await render();
-      aviso('Rotina salva ✓');
+      aviso(state.rotinaTravou
+        ? 'Rotina salva ✓ · Início mantido para não perder o histórico'
+        : 'Rotina salva ✓');
     }
     return true;
   }

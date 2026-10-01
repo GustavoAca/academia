@@ -8,7 +8,7 @@
  */
 
 import { initDB, getSetting } from './db.js';
-import { getRotina, sincronizarCatalogo } from './rotina-service.js';
+import { getRotina, getRotinaHistorico, sincronizarCatalogo } from './rotina-service.js';
 import { getAjustes } from './ajustes-service.js';
 import { seedFromPlano } from './core/seed.js';
 import { migrateFromLocalStorage, baixarBackup } from './core/importacao.js';
@@ -30,6 +30,7 @@ export async function initApp() {
   try {
     await initDB();
     store.rotina = await getRotina();
+    await getRotinaHistorico();
     await sincronizarCatalogo(store.rotina);
     await seedFromPlano();
     store.notas = (await getSetting('notas')) || {};

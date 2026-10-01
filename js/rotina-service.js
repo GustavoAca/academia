@@ -21,6 +21,11 @@
  * cardio.i é o cardio no início e cardio.f no final do treino. Padrão:
  * apenas o final vem ativo (o início fica desligado até o usuário ativar).
  * Dias antigos, salvos sem esse campo, caem nesse padrão via cardioConfig.
+ *
+ * Versões: ao salvar uma rotina diferente, a anterior é congelada em
+ * settings ('rotinaHistorico') como { ate, rotina } e a nova passa a valer
+ * de hoje em diante (vigenteDesde). Assim os dias antigos continuam com o
+ * plano original e o histórico de treinos nunca some.
  */
 
 import {
@@ -34,8 +39,10 @@ import {
   saveSetting
 } from './db.js';
 import { PLANO } from './plano.js';
+import { hojeISO } from './core/utils.js';
 
 const CHAVE_ROTINA = 'rotina';
+const CHAVE_HIST = 'rotinaHistorico';
 const DIAS = ['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom'];
 const INICIO_PADRAO = '2026-09-14';
 
@@ -68,6 +75,144 @@ function rotinaPadrao() {
 }
 
 let cache = null;
+let histCache = null;
+
+/**
+ * Date from which a routine is in force. Older routines were saved without
+ * `vigenteDesde`, so they fall back to their start date.
+ * @param {Object} r
+ * @returns {string} YYYY-MM-DD
+ */
+function vigenteDe(r) {
+  return String((r && (r.vigenteDesde || r.inicio)) || INICIO_PADRAO);
+}
+
+/**
+ * Superseded routine versions, ascending by last valid day (`ate`).
+ * Lazy cache: boot, save and import fill it through `definirHistorico`.
+ * @returns {Promise<Array<{ate: string, rotina: Object}>>}
+ */
+async function getRotinaHistorico() {
+  if (histCache) return histCache;
+  const salvo = await getSetting(CHAVE_HIST);
+  return definirHistorico(salvo);
+}
+
+/**
+ * Replace the in-memory version list (also the seeding point for tests).
+ * @param {any} lista
+ * @returns {Array} the sanitized list
+ */
+function definirHistorico(lista) {
+  histCache = Array.isArray(lista)
+    ? lista
+      .filter(h => h && /^\d{4}-\d{2}-\d{2}$/.test(String(h.ate)) && h.rotina && h.rotina.dias)
+      .sort((a, b) => (a.ate < b.ate ? -1 : a.ate > b.ate ? 1 : 0))
+    : [];
+  return histCache;
+}
+
+/** Drop both routine caches so the next read hits the database (import). */
+function limparCacheRotina() {
+  cache = null;
+  histCache = null;
+}
+
+/**
+ * Routine in force on a date (YYYY-MM-DD). Synchronous: it relies on the
+ * caches filled by getRotina/getRotinaHistorico — without history loaded
+ * the active routine answers for every date (pre-versioning behavior).
+ * @param {string} data
+ * @param {Object} [atual] - active routine (defaults to the cached one)
+ * @param {Array} [hist] - version list (defaults to the cached history)
+ * @returns {Object|null}
+ */
+function rotinaNaData(data, atual, hist) {
+  const r = atual === undefined ? cache : atual;
+  const h = hist === undefined ? histCache : hist;
+  if (!r || !h || !h.length) return r;
+  const d = String(data || '');
+  if (d >= vigenteDe(r)) return r;
+  const versao = h.find(x => String(x.ate) >= d);
+  return (versao && versao.rotina) || r;
+}
+
+/**
+ * Compare two routines ignoring bookkeeping fields (timestamps, version).
+ * @param {Object} a
+ * @param {Object} b
+ * @returns {boolean}
+ */
+function mesmaConteudo(a, b) {
+  const limpar = r => {
+    if (!r) return '';
+    const { atualizadaEm, criadaEm, vigenteDesde, ...x } = r;
+    return JSON.stringify(x);
+  };
+  return limpar(a) === limpar(b);
+}
+
+/**
+ * Freeze the outgoing routine as the version valid until yesterday, so past
+ * days keep resolving to it. Routines that only start today (or later) never
+ * covered the past and are not kept.
+ * @param {Object} antes - outgoing active routine
+ * @param {Array} hist - current version list (not mutated)
+ * @param {string} hoje - 'YYYY-MM-DD'
+ * @returns {Array} new list, ascending by 'ate'
+ */
+function congelarVersao(antes, hist, hoje) {
+  const base = Array.isArray(hist) ? hist : [];
+  if (!antes) return base;
+  const d = dataParaDate(hoje);
+  d.setDate(d.getDate() - 1);
+  const ontem = isoDe(d);
+  if (vigenteDe(antes) > ontem) return base;
+  const mantidas = base.filter(h => String(h.ate) < ontem);
+  return [...mantidas, { ate: ontem, rotina: JSON.parse(JSON.stringify(antes)) }];
+}
+
+/**
+ * Make the routine reach `hoje`: with the start date locked for history,
+ * a duration that ends in the past would hide today's week.
+ * @param {Object} r - routine draft (mutated)
+ * @param {string} hoje - 'YYYY-MM-DD'
+ * @returns {Object} the same routine
+ */
+function estenderParaHoje(r, hoje) {
+  if (!r || !r.inicio || fimRotina(r) >= hoje) return r;
+  const dias = Math.floor((dataParaDate(hoje) - dataParaDate(r.inicio)) / 864e5) + 1;
+  const sems = Math.max(1, Math.ceil(dias / 7));
+  if (!r.duracao || typeof r.duracao !== 'object') r.duracao = { tipo: 'semanas', valor: 1, ate: '' };
+  const dur = r.duracao;
+  if (dur.tipo === 'ate') dur.ate = hoje;
+  else if (dur.tipo === 'meses') dur.valor = Math.max(Number(dur.valor) || 1, Math.ceil(sems * 7 / 30.4));
+  else dur.valor = Math.max(Number(dur.valor) || 1, sems);
+  return r;
+}
+
+/**
+ * Start-date policy applied before saving: when history exists (or the
+ * routine was already in force), moving `inicio` forward would hide past
+ * weeks, so the old start is kept; then the duration is extended when
+ * needed so today stays inside the program.
+ * @param {Object} r - draft (mutated)
+ * @param {Object} anterior - active routine (nullable)
+ * @param {string} hoje - 'YYYY-MM-DD'
+ * @param {Array} [hist] - version list
+ * @returns {{r: Object, travou: boolean}}
+ */
+function prepararParaSalvar(r, anterior, hoje, hist) {
+  let travou = false;
+  const cobriuOntem = (Array.isArray(hist) && hist.length > 0) ||
+    (anterior && vigenteDe(anterior) < hoje);
+  if (cobriuOntem && anterior && segundaDe(r.inicio) > segundaDe(anterior.inicio)) {
+    r.inicio = anterior.inicio;
+    travou = true;
+  }
+  estenderParaHoje(r, hoje);
+  return { r, travou };
+}
 
 /**
  * Cardio settings of one routine slot ('i' = start, 'f' = end of workout).
@@ -255,7 +400,19 @@ function normalizar(r) {
 }
 
 /**
- * Validate, normalize and persist a routine.
+ * Outgoing routine to freeze: the in-memory one, or (after a cache drop
+ * during import) the stored one.
+ * @returns {Promise<Object|null>}
+ */
+async function rotinaAnterior() {
+  if (cache) return cache;
+  const salva = await getSetting(CHAVE_ROTINA);
+  return salva && salva.dias && salva.treinos ? salva : null;
+}
+
+/**
+ * Validate, normalize and persist a routine. The outgoing one is frozen in
+ * the version history and the new one applies from today onwards.
  * @param {Object} r
  * @returns {Promise<Object>} the saved routine
  */
@@ -263,19 +420,41 @@ async function salvarRotina(r) {
   const validacao = validarRotina(r);
   if (!validacao.valid) throw new Error(validacao.error);
 
+  const antes = await rotinaAnterior();
+  const hoje = hojeISO();
   const limpa = normalizar(r);
+  limpa.vigenteDesde = hoje;
+
+  const histAntes = await getRotinaHistorico();
+  const hist = antes && !mesmaConteudo(antes, limpa)
+    ? congelarVersao(antes, histAntes, hoje)
+    : histAntes;
+  if (hist !== histAntes) await saveSetting(CHAVE_HIST, hist);
+
   await saveSetting(CHAVE_ROTINA, limpa);
   cache = limpa;
+  histCache = hist;
   return limpa;
 }
 
 /**
- * Drop the custom routine and go back to the PLANO based one.
+ * Drop the custom routine and go back to the PLANO based one, keeping the
+ * current routine in the history so past days stay untouched.
  * @returns {Promise<Object>}
  */
 async function restaurarPadrao() {
-  await saveSetting(CHAVE_ROTINA, null);
-  cache = rotinaPadrao();
+  const hoje = hojeISO();
+  const antes = await rotinaAnterior();
+  const padrao = { ...normalizar(rotinaPadrao()), vigenteDesde: hoje };
+  const histAntes = await getRotinaHistorico();
+  const hist = antes && !mesmaConteudo(antes, padrao)
+    ? congelarVersao(antes, histAntes, hoje)
+    : histAntes;
+  if (hist !== histAntes) await saveSetting(CHAVE_HIST, hist);
+
+  await saveSetting(CHAVE_ROTINA, padrao);
+  cache = padrao;
+  histCache = hist;
   return cache;
 }
 
@@ -412,8 +591,18 @@ async function sincronizarCatalogo(r) {
 
 export {
   CHAVE_ROTINA,
+  CHAVE_HIST,
   rotinaPadrao,
   getRotina,
+  getRotinaHistorico,
+  definirHistorico,
+  limparCacheRotina,
+  rotinaNaData,
+  vigenteDe,
+  mesmaConteudo,
+  congelarVersao,
+  estenderParaHoje,
+  prepararParaSalvar,
   salvarRotina,
   restaurarPadrao,
   validarRotina,

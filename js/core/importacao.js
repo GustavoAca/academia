@@ -18,7 +18,7 @@ import {
   getSetting
 } from '../db.js';
 import { MED, num, saveMeasurements } from '../measurement-service.js';
-import { getRotina, sincronizarCatalogo } from '../rotina-service.js';
+import { getRotina, getRotinaHistorico, limparCacheRotina, sincronizarCatalogo } from '../rotina-service.js';
 import { exportBackup, importBackup, downloadBackup } from '../backup-service.js';
 import { backfillMacros } from '../food-service.js';
 import { getAjustes } from '../ajustes-service.js';
@@ -213,7 +213,9 @@ export async function atualizarAposImportacao() {
   }
 
   const rotinaAntes = store.rotina && store.rotina.atualizadaEm;
+  limparCacheRotina();
   store.rotina = await getRotina();
+  await getRotinaHistorico();
   store.rotinaRascunho = null;
   if (rotinaAntes !== store.rotina.atualizadaEm) {
     await sincronizarCatalogo(store.rotina);

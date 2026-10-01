@@ -61,6 +61,7 @@ test('telaRotina renders the routine form from the draft', () => {
   assert.match(html, /Minha rotina de treino/);
   assert.match(html, /data-a="rsalvar"/);
   assert.match(html, /data-a="rpadrao"/);
+  assert.match(html, /data-a="rmover"/, 'cada exercício tem botões de subir e descer');
   assert.ok(store.rotinaRascunho, 'a prévia cria um rascunho editável');
   assert.equal(store.rotinaRascunho.origem, 'plano', 'só editar torna a rotina pessoal');
 });
@@ -96,6 +97,29 @@ test('rotina actions toggle days and restore the default plan', async () => {
 
   await telas.rotina.aoClicar('rpadrao', { dataset: {} });
   assert.equal(store.rotinaRascunho.origem, 'plano');
+});
+
+test('rmover sobe e desce exercícios na ordem do dia', async () => {
+  store.rotina = rotinaPadrao();
+  store.rotinaRascunho = rotinaPadrao();
+
+  const antes = store.rotinaRascunho.treinos.seg.ex.map(e => e.nome);
+  assert.ok(antes.length >= 2, 'o dia tem ao menos dois exercícios');
+
+  await telas.rotina.aoClicar('rmover', { dataset: { d: 'seg', i: '1', dir: '-1' } });
+  const subiu = store.rotinaRascunho.treinos.seg.ex.map(e => e.nome);
+  assert.deepEqual(subiu, [antes[1], antes[0], ...antes.slice(2)], 'subiu uma posição');
+  assert.equal(store.rotinaRascunho.origem, 'personalizada', 'reordenar personaliza a rotina');
+
+  await telas.rotina.aoClicar('rmover', { dataset: { d: 'seg', i: '0', dir: '-1' } });
+  assert.deepEqual(store.rotinaRascunho.treinos.seg.ex.map(e => e.nome), subiu, 'o primeiro não sobe');
+
+  await telas.rotina.aoClicar('rmover', { dataset: { d: 'seg', i: String(subiu.length - 1), dir: '1' } });
+  assert.deepEqual(store.rotinaRascunho.treinos.seg.ex.map(e => e.nome), subiu, 'o último não desce');
+
+  await telas.rotina.aoClicar('rmover', { dataset: { d: 'seg', i: '0', dir: '1' } });
+  const desceu = store.rotinaRascunho.treinos.seg.ex.map(e => e.nome);
+  assert.deepEqual(desceu, [subiu[1], subiu[0], ...subiu.slice(2)], 'desceu troca com o de baixo');
 });
 
 test('rotina change handler adds an exercise from the catalog', async () => {

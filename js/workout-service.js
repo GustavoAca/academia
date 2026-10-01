@@ -34,7 +34,7 @@ import {
   DB_NAME,
   DB_VERSION
 } from './db.js';
-import { salvarRotina as salvarRotinaImportada } from './rotina-service.js';
+import { salvarRotina as salvarRotinaImportada, limparCacheRotina, CHAVE_HIST } from './rotina-service.js';
 
 /* --- Exercise Operations --- */
 
@@ -550,7 +550,10 @@ async function importData(backupData, overwrite = false) {
   
   const database = await initDB();
   const stores = ['exercises', 'workouts', 'workout_exercises', 'executions', 'measurements', 'cardios', 'settings', 'food_entries', 'foods'];
-  
+
+  // As importações decidem com o estado fresco do banco, não com os caches
+  limparCacheRotina();
+
   // Count existing records (read the result inside onsuccess, never synchronously)
   const existingCounts = {};
   {
@@ -565,6 +568,10 @@ async function importData(backupData, overwrite = false) {
       transaction.onabort = () => reject(transaction.error);
     });
   }
+
+  // Histórico local ANTES de qualquer limpeza: usado abaixo para decidir se
+  // as versões do backup substituem as locais
+  const histLocal = await getSetting(CHAVE_HIST);
   
   if (overwrite) {
     // Clear all data first and wait, so later writes land on empty stores
@@ -579,7 +586,7 @@ async function importData(backupData, overwrite = false) {
     });
   }
   
-  const stats = { exercises: 0, workouts: 0, measurements: 0, executions: 0, cardios: 0, foodEntries: 0, foods: 0, rotina: 0, reaproveitados: 0, ignorados: 0 };
+  const stats = { exercises: 0, workouts: 0, measurements: 0, executions: 0, cardios: 0, foodEntries: 0, foods: 0, rotina: 0, rotinaHistorico: 0, reaproveitados: 0, ignorados: 0 };
   const idExercicio = new Map(); // id no backup -> id local
   const idTreino = new Map();    // id no backup -> id local
   
@@ -734,6 +741,19 @@ async function importData(backupData, overwrite = false) {
       stats.cardioPulados = 1;
     }
     
+    // --- Versões antigas da rotina: entram quando o backup traz as suas e o
+    //     dispositivo não tem histórico (ou o restore limpou tudo) ---
+    if (Array.isArray(backupData.rotinaHistorico) && backupData.rotinaHistorico.length &&
+        (overwrite || !Array.isArray(histLocal) || !histLocal.length)) {
+      try {
+        await saveSetting(CHAVE_HIST, backupData.rotinaHistorico);
+        stats.rotinaHistorico = backupData.rotinaHistorico.length;
+      } catch (err) {
+        console.warn('Histórico da rotina do backup ignorado:', err.message);
+        stats.ignorados++;
+      }
+    }
+
     // --- Rotina personalizada (quando veio no backup) ---
     if (backupData.rotina && typeof backupData.rotina === 'object' && backupData.rotina.dias && backupData.rotina.treinos) {
       try {

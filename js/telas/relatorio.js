@@ -25,7 +25,7 @@ import {
   linhaCarga,
   barrasData
 } from '../core/graficos.js';
-import { dataParaDate, defsDoDia } from '../rotina-service.js';
+import { dataParaDate, defsDoDia, rotinaNaData } from '../rotina-service.js';
 import { MED, num, getAllMeasurementsDesc } from '../measurement-service.js';
 import { getAllExecutions } from '../report-service.js';
 import { getAllCardios, todosPulados, paceDe } from '../cardio-service.js';
@@ -176,7 +176,7 @@ async function secTreino(desde) {
       const data = iso(dataDe(s, d));
       if (desde && data < desde) return;
       if (data > hoje) return;
-      planSem[s] += defsDoDia(store.rotina, k).reduce((a, x) => a + Number(x.series || 0), 0);
+      planSem[s] += defsDoDia(rotinaNaData(data, store.rotina), k).reduce((a, x) => a + Number(x.series || 0), 0);
     });
   });
 

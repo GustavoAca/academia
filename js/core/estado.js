@@ -25,6 +25,7 @@ export const state = {
   alimEdit: null,   // id of the day's item being edited (Alimentação screen)
   alimEditRef: null, // kcal per 100 g of the item being edited
   alimCriar: false,  // show the catalog's "new food" form (Alimentação screen)
+  rotinaTravou: false, // o salvamento travou o Início para preservar o histórico
   ajustes: { circular: true, pct: true }, // exibição (ajustes-service, recarregado no boot)
   foco: { passo: 1, grupos: [], dias: 4 } // wizard da aba Foco
 };
@@ -34,7 +35,9 @@ export const store = {
   rotina: null,            // active routine (see rotina-service)
   rotinaRascunho: null,    // routine draft being edited (Rotina/Foco screens)
   exercisesById: new Map(),
-  catalogo: {},            // day -> { workout, ids, defs }
+  exerciseIdPorNome: new Map(),   // nome -> id (resolução de versões antigas)
+  workoutsPorDia: new Map(),      // dia -> workout row
+  catalogo: {},            // day -> { workout, ids, defs } (rotina ativa)
   notas: {},               // 'dia|semana|indiceExercicio' -> texto
   logAtual: {},            // 'exercicioId|serie' -> { c, r }
   medDraft: {},            // measurement record being edited for state.md

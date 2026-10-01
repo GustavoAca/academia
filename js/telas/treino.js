@@ -5,7 +5,7 @@
 
 import { DIAS, CURTO, LONGO, iso, fmt, esc, f1, ok } from '../core/utils.js';
 import { state, store, gravar, aguardarGravacoes } from '../core/estado.js';
-import { MAXS, dataDe, defsAtuais, idsAtuais, passos, exAtual } from '../core/programa.js';
+import { MAXS, dataDe, defsAtuais, idsAtuais, passos, exAtual, catalogoEm, rotinaSelecionada, rotinaEm } from '../core/programa.js';
 import {
   carregarLogDoDia,
   gDe,
@@ -38,7 +38,7 @@ export async function telaTreino() {
   const mx = MAXS(state.d);
   if (state.s > mx) state.s = mx;
 
-  const ativo = diaAtivo(store.rotina, dia);
+  const ativo = diaAtivo(rotinaSelecionada(), dia);
   const ps = passos();
   const n = ps.length;
   if (state.e >= n) state.e = n - 1;
@@ -51,7 +51,7 @@ export async function telaTreino() {
   const cardiosDia = await getCardiosByDate(dataHoje);
 
   const dias = CURTO.map((c, i) => {
-    const on = diaAtivo(store.rotina, DIAS[i]);
+    const on = diaAtivo(rotinaEm(state.s, i), DIAS[i]);
     return `<button data-a="dia" data-v="${i}" class="${i === state.d ? 'on' : ''}" ${on ? '' : 'style="opacity:.55"'}><b>${c}</b><small>${fmt(dataDe(state.s, i))}</small></button>`;
   }).join('');
 
@@ -100,7 +100,7 @@ export async function telaTreino() {
     corpo = descansoCard;
   }
 
-  const nomeRotina = nomeDoDia(store.rotina, dia);
+  const nomeRotina = nomeDoDia(rotinaSelecionada(), dia);
 
   return `<header>${tabs()}
     <div class="dias">${dias}</div>
@@ -116,9 +116,9 @@ export async function telaTreino() {
 
 /** Card of one exercise: previous reference, set inputs and note. */
 async function cardEx(ei) {
-  const dia = DIAS[state.d];
-  const [nome, grp, ns, mn, mxr] = store.catalogo[dia].defs[ei];
-  const id = store.catalogo[dia].ids[ei];
+  const cat = catalogoEm(state.d, state.s);
+  const [nome, grp, ns, mn, mxr] = cat.defs[ei];
+  const id = cat.ids[ei];
   const u = await ultimo(state.d, state.s, ei);
 
   let ant = '<div class="ant">Sem registro anterior deste exercício.</div>';
@@ -147,7 +147,7 @@ async function cardEx(ei) {
 export async function cardPassoCardio(m, pulados, cardiosDia) {
   const slot = m === 'i' ? 'i' : 'f';
   const dia = DIAS[state.d];
-  const cfg = cardioDoDia(store.rotina, dia, slot);
+  const cfg = cardioDoDia(rotinaSelecionada(), dia, slot);
   if (!cfg.ativo) return '';
 
   const rotulo = slot === 'i' ? 'Cardio inicial' : 'Cardio final';

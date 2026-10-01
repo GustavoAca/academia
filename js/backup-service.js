@@ -8,6 +8,7 @@
 import { initDB, getAllExercises, getAllWorkouts, getAllMeasurements, getAllCardios, getAllFoodEntries, getAllFoods, getSetting, DB_VERSION } from './db.js';
 import { importData as importDataService, validateBackupFormat } from './workout-service.js';
 import { getAllExecutions } from './report-service.js';
+import { getRotinaHistorico } from './rotina-service.js';
 
 /**
  * Export all data to a backup JSON file.
@@ -83,6 +84,10 @@ async function exportBackup() {
     // Get the custom routine, when there is one
     const rotinaSalva = await getSetting('rotina');
     if (rotinaSalva) dataExport.rotina = rotinaSalva;
+
+    // Superseded routine versions, so past days keep their original plan
+    const rotinaHistorico = await getRotinaHistorico();
+    if (rotinaHistorico.length) dataExport.rotinaHistorico = rotinaHistorico;
 
     // Get food entries and the learned food catalog
     const foodEntries = await getAllFoodEntries();

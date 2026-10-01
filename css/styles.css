@@ -344,6 +344,11 @@ textarea {
   font-weight:700
 }
 
+.btn:disabled {
+  opacity:.4;
+  cursor:default
+}
+
 /* --- 5. Navegação inferior ------------------------------------------------ */
 nav {
   position:fixed;
