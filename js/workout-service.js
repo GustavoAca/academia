@@ -725,6 +725,10 @@ async function importData(backupData, overwrite = false) {
       await saveSetting('metaMacros', backupData.metaMacros);
       stats.metaMacros = 1;
     }
+    if (backupData.ajustesGraficos && typeof backupData.ajustesGraficos === 'object') {
+      await saveSetting('ajustesGraficos', backupData.ajustesGraficos);
+      stats.ajustesGraficos = 1;
+    }
     if (backupData.cardioPulados && typeof backupData.cardioPulados === 'object') {
       await saveSetting('cardioPulados', backupData.cardioPulados);
       stats.cardioPulados = 1;

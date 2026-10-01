@@ -77,6 +77,32 @@ function divergenciaKcal(f) {
 /** data-k of the catalog reference inputs → the field it edits. */
 const CAMPOS_REFERENCIA = { alkcal: 'kcal100', alprot: 'prot100', alcarb: 'carb100', algord: 'gord100' };
 
+/**
+ * One goal macro (consumed vs daily goal) as a ring or a horizontal bar,
+ * following the display preferences. Pure HTML helper (unit-tested without
+ * DOM or database).
+ * @param {string} rot - label ('Proteína', 'Carboidrato', 'Gordura')
+ * @param {number} val - grams consumed today
+ * @param {number} alvo - daily goal in grams
+ * @param {{circular: boolean, pct: boolean}} ajustes - display preferences
+ * @returns {string}
+ */
+export function macroMeta(rot, val, alvo, ajustes) {
+  const mpct = Math.min(100, val / alvo * 100);
+  const cheio = val >= alvo;
+  const cor = cheio ? 'var(--ok)' : 'var(--ac)';
+  const frac = `${f1(val)}/${f1(alvo)} g`;
+
+  if (!ajustes.circular) {
+    return `<div class="hbar"><span>${rot}</span><span><i style="width:${mpct.toFixed(0)}%;background:${cor}"></i></span>
+      <span style="white-space:nowrap">${frac}${ajustes.pct ? ` · ${mpct.toFixed(0)}%` : ''}</span></div>`;
+  }
+
+  const centro = ajustes.pct ? `${mpct.toFixed(0)}%` : `${f1(val)} g`;
+  return `<div class="macro-circ"><div class="anel${cheio ? ' ok' : ''}" style="--p:${mpct.toFixed(1)}"><span>${centro}</span></div>
+    <small><b>${rot}</b> · ${frac}</small></div>`;
+}
+
 export function novaLista() {
   return { termo: '', offset: 0, itens: [], temMais: false, total: 0, carregando: false, pronto: false, aberto: false, seq: 0 };
 }
@@ -115,18 +141,17 @@ function linhaSugestao(f) {
 
 function linhaCatalogo(f) {
   const nome = f.exibicao || f.nome || '';
-  const inp = (k, v, rot) => `<input class="sel" data-k="${k}" data-n="${esc(f.nome)}" inputmode="decimal" value="${temRef(v) ? String(v).replace('.', ',') : ''}" placeholder="?" style="width:64px;flex:none;height:34px;text-align:center;font-size:13px" aria-label="${rot} por 100 g de ${esc(nome)}">`;
-  const macro = (k, v, letra, rot) => `<span style="font-size:11px;color:var(--mut);white-space:nowrap">${letra}</span>${inp(k, v, rot)}`;
-  return `<div class="li" style="padding:8px 10px;flex-wrap:wrap;row-gap:6px">
-    <span class="n" style="flex:1;min-width:120px"><b>${esc(nome)}</b><small>${f.vezes || 0} registro${(f.vezes || 0) === 1 ? '' : 's'}</small></span>
-    ${inp('alkcal', f.kcal100, 'Calorias')}
-    <span style="font-size:12px;color:var(--mut);white-space:nowrap">kcal/100 g</span>
-    <div style="display:flex;gap:6px;align-items:center;width:100%;flex-wrap:wrap">
-      <span style="font-size:11px;color:var(--mut);white-space:nowrap">g/100 g:</span>
+  const inp = (k, v, rot) => `<input class="sel ref" data-k="${k}" data-n="${esc(f.nome)}" inputmode="decimal" value="${temRef(v) ? String(v).replace('.', ',') : ''}" placeholder="?" aria-label="${rot} por 100 g de ${esc(nome)}">`;
+  const macro = (k, v, letra, rot) => `<span class="macro"><span class="letra">${letra}</span>${inp(k, v, rot)}</span>`;
+  return `<div class="li catlinha">
+    <span class="n"><b>${esc(nome)}</b><small>${f.vezes || 0} registro${(f.vezes || 0) === 1 ? '' : 's'}</small></span>
+    <span class="kcal">${inp('alkcal', f.kcal100, 'Calorias')}<span class="rot">kcal/100 g</span></span>
+    <div class="macros">
+      <span class="g100">g/100 g:</span>
       ${macro('alprot', f.prot100, 'Prot', 'Proteína')}
       ${macro('alcarb', f.carb100, 'Carb', 'Carboidrato')}
       ${macro('algord', f.gord100, 'Gord', 'Gordura')}
-      <button class="btn" style="width:36px;height:34px;flex:none;margin-left:auto" data-a="alalimdel" data-v="${f.id === undefined || f.id === null ? '' : f.id}" data-n="${esc(nome)}" data-u="${f.vezes || 0}" aria-label="Excluir ${esc(nome)} do catálogo">×</button>
+      <button class="btn" data-a="alalimdel" data-v="${f.id === undefined || f.id === null ? '' : f.id}" data-n="${esc(nome)}" data-u="${f.vezes || 0}" aria-label="Excluir ${esc(nome)} do catálogo">×</button>
     </div></div>`;
 }
 
@@ -399,13 +424,14 @@ export async function telaAlimentacao() {
     const val = Number(mv[chave]) || 0;
     const alvo = mm[chave];
     if (!(alvo > 0)) return '';
-    const mpct = Math.min(100, val / alvo * 100);
-    return `<div class="hbar"><span>${rot}</span><span><i style="width:${mpct.toFixed(0)}%;background:${val >= alvo ? 'var(--ok)' : 'var(--ac)'}"></i></span>
-      <span style="white-space:nowrap">${f1(val)}/${f1(alvo)} g</span></div>`;
+    return macroMeta(rot, val, alvo, state.ajustes || { circular: true, pct: true });
   };
   const macroVal = chave => (mm[chave] !== null && mm[chave] !== undefined ? String(mm[chave]).replace('.', ',') : '');
-  const macrosHtml = [macroLinha('Proteína', 'prot'), macroLinha('Carboidrato', 'carb'), macroLinha('Gordura', 'gord')].join('') ||
-    `<div class="meta">Proteína ${f1(mv.prot)} g · Carboidrato ${f1(mv.carb)} g · Gordura ${f1(mv.gord)} g — defina as metas acima para acompanhar o progresso.</div>`;
+  const linhasMacro = [macroLinha('Proteína', 'prot'), macroLinha('Carboidrato', 'carb'), macroLinha('Gordura', 'gord')].filter(Boolean);
+  const circ = !state.ajustes || state.ajustes.circular !== false;
+  const macrosHtml = linhasMacro.length
+    ? (circ ? `<div class="macro-circs">${linhasMacro.join('')}</div>` : linhasMacro.join(''))
+    : `<div class="meta">Proteína ${f1(mv.prot)} g · Carboidrato ${f1(mv.carb)} g · Gordura ${f1(mv.gord)} g — defina as metas acima para acompanhar o progresso.</div>`;
 
   const terceiro = falta === null
     ? kp('—', 'defina uma meta diária')

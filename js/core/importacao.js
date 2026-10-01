@@ -8,7 +8,7 @@
  */
 
 import { iso, extrairJson } from './utils.js';
-import { store } from './estado.js';
+import { state, store } from './estado.js';
 import { PLANO } from '../plano.js';
 import {
   getAllWorkouts,
@@ -21,6 +21,7 @@ import { MED, num, saveMeasurements } from '../measurement-service.js';
 import { getRotina, sincronizarCatalogo } from '../rotina-service.js';
 import { exportBackup, importBackup, downloadBackup } from '../backup-service.js';
 import { backfillMacros } from '../food-service.js';
+import { getAjustes } from '../ajustes-service.js';
 import { loadCatalogo, posicaoInicial } from './programa.js';
 import { carregarLogDoDia } from './log-dia.js';
 import { render } from './render.js';
@@ -205,6 +206,11 @@ export async function importarArquivo(file, tipo) {
  */
 export async function atualizarAposImportacao() {
   store.notas = (await getSetting('notas')) || store.notas;
+  try {
+    state.ajustes = await getAjustes();
+  } catch (err) {
+    console.warn('Ajustes:', err.message);
+  }
 
   const rotinaAntes = store.rotina && store.rotina.atualizadaEm;
   store.rotina = await getRotina();

@@ -104,6 +104,8 @@ async function exportBackup() {
     if (metaCalorias !== null && metaCalorias !== undefined) dataExport.metaCalorias = metaCalorias;
     const metaMacros = await getSetting('metaMacros');
     if (metaMacros && typeof metaMacros === 'object') dataExport.metaMacros = metaMacros;
+    const ajustesGraficos = await getSetting('ajustesGraficos');
+    if (ajustesGraficos && typeof ajustesGraficos === 'object') dataExport.ajustesGraficos = ajustesGraficos;
 
     // Days where the start/end cardio was skipped
     const cardioPulados = await getSetting('cardioPulados');

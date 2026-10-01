@@ -1193,3 +1193,210 @@ input, select, textarea {
   outline-offset:6px;
   border-radius:14px
 }
+
+/* --- 14. Alimentação: catálogo por 100 g -------------------------------- */
+.catlinha {
+  padding:8px 10px;
+  flex-wrap:wrap;
+  row-gap:6px
+}
+
+.catlinha .n {
+  flex:1;
+  min-width:120px
+}
+
+.catlinha .ref {
+  width:64px;
+  flex:none;
+  height:34px;
+  font-size:13px
+}
+
+.catlinha .kcal {
+  display:flex;
+  gap:12px;
+  align-items:center;
+  flex:none
+}
+
+.catlinha .kcal .rot {
+  font-size:12px;
+  color:var(--mut);
+  white-space:nowrap
+}
+
+.catlinha .macros {
+  display:flex;
+  gap:6px;
+  align-items:center;
+  width:100%;
+  flex-wrap:wrap
+}
+
+.catlinha .macro {
+  display:flex;
+  gap:6px;
+  align-items:center
+}
+
+.catlinha .macro .letra,
+.catlinha .g100 {
+  font-size:11px;
+  color:var(--mut);
+  white-space:nowrap
+}
+
+.catlinha .macros .btn {
+  width:36px;
+  height:34px;
+  flex:none;
+  margin-left:auto
+}
+
+/* --- 15. Macros da meta em círculo e interruptores de ajustes ---------- */
+.macro-circs {
+  display:flex;
+  gap:10px;
+  justify-content:space-between;
+  margin:8px 0 4px
+}
+
+.macro-circ {
+  flex:1;
+  min-width:0;
+  text-align:center
+}
+
+.anel {
+  position:relative;
+  width:min(76px,22vw);
+  height:min(76px,22vw);
+  margin:0 auto 6px;
+  border-radius:50%;
+  background:conic-gradient(var(--ac) calc(var(--p) * 3.6deg), var(--line) calc(var(--p) * 3.6deg))
+}
+
+.anel.ok {
+  background:conic-gradient(var(--ok) calc(var(--p) * 3.6deg), var(--line) calc(var(--p) * 3.6deg))
+}
+
+.anel::before {
+  content:'';
+  position:absolute;
+  inset:8px;
+  border-radius:50%;
+  background:var(--card)
+}
+
+.anel span {
+  position:absolute;
+  inset:0;
+  display:grid;
+  place-items:center;
+  font-size:13px;
+  font-weight:700;
+  color:var(--ink)
+}
+
+.macro-circ small {
+  display:block;
+  font-size:11.5px;
+  color:var(--mut);
+  overflow-wrap:anywhere
+}
+
+.macro-circ small b {
+  color:var(--ink)
+}
+
+.linha-ajuste {
+  display:flex;
+  gap:12px;
+  align-items:center;
+  justify-content:space-between;
+  padding:12px 0;
+  border-bottom:1px solid var(--line)
+}
+
+.linha-ajuste:last-child {
+  border-bottom:0
+}
+
+.sw {
+  position:relative;
+  width:48px;
+  height:28px;
+  flex:none;
+  padding:0;
+  border:0;
+  border-radius:14px;
+  background:var(--line);
+  cursor:pointer;
+  transition:.2s
+}
+
+.sw::after {
+  content:'';
+  position:absolute;
+  top:3px;
+  left:3px;
+  width:22px;
+  height:22px;
+  border-radius:50%;
+  background:#fff;
+  box-shadow:0 1px 3px rgba(0,0,0,.3);
+  transition:.2s
+}
+
+.sw.on {
+  background:var(--ac)
+}
+
+.sw.on::after {
+  transform:translateX(20px)
+}
+
+/* --- 16. Ecrã estreito: catálogo por 100 g empilhado ------------------- */
+@media (max-width:420px) {
+  .catlinha .n {
+    flex:none;
+    width:100%
+  }
+
+  .catlinha .kcal {
+    width:100%;
+    justify-content:space-between
+  }
+
+  .catlinha .kcal .ref {
+    width:auto;
+    flex:1;
+    height:44px;
+    font-size:16px
+  }
+
+  .catlinha .macros {
+    flex-direction:column;
+    align-items:stretch;
+    row-gap:8px
+  }
+
+  .catlinha .macro {
+    justify-content:space-between
+  }
+
+  .catlinha .macro .ref {
+    width:auto;
+    flex:1;
+    margin-left:12px;
+    height:44px;
+    font-size:16px
+  }
+
+  .catlinha .macros .btn {
+    align-self:flex-end;
+    height:40px;
+    min-height:40px
+  }
+}

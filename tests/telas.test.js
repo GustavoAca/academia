@@ -9,7 +9,7 @@ import { state, store } from '../js/core/estado.js';
 import { rotinaPadrao } from '../js/rotina-service.js';
 import * as telas from '../js/telas/index.js';
 
-const NOMES = ['treino', 'rotina', 'foco', 'med', 'alim', 'rel'];
+const NOMES = ['treino', 'rotina', 'foco', 'med', 'alim', 'rel', 'cfg'];
 const originais = Object.fromEntries(NOMES.map(n => [n, telaDe(n)]));
 
 const snapshot = () => ({

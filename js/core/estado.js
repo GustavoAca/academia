@@ -11,7 +11,7 @@ import { hojeISO } from './utils.js';
 
 /** Screen/navigation state. */
 export const state = {
-  tela: 'treino', // 'treino' | 'rotina' | 'foco' | 'med' | 'alim' | 'rel'
+  tela: 'treino', // 'treino' | 'rotina' | 'foco' | 'med' | 'alim' | 'rel' | 'cfg'
   d: 0,           // day index 0..6 (Seg..Dom)
   s: 1,           // program week 1..MAXS
   e: 0,           // exercise index within the day
@@ -24,6 +24,7 @@ export const state = {
   relSec: 'treino', // report section: 'treino' | 'corpo' | 'alim'
   alimEdit: null,   // id of the day's item being edited (Alimentação screen)
   alimEditRef: null, // kcal per 100 g of the item being edited
+  ajustes: { circular: true, pct: true }, // exibição (ajustes-service, recarregado no boot)
   foco: { passo: 1, grupos: [], dias: 4 } // wizard da aba Foco
 };
 

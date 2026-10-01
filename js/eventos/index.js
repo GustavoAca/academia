@@ -16,7 +16,8 @@ import * as alimentacao from '../telas/alimentacao.js';
 import * as relatorio from '../telas/relatorio.js';
 import * as rotina from '../telas/rotina.js';
 import * as foco from '../telas/foco.js';
-const CLIQUES = [globais, treino, rotina, foco, medidas, relatorio, alimentacao];
+import * as configuracoes from '../telas/configuracoes.js';
+const CLIQUES = [globais, treino, rotina, foco, medidas, relatorio, alimentacao, configuracoes];
 const ENTRADAS = [rotina, relatorio, medidas, alimentacao, treino];
 const MUDANCAS = [rotina, treino, alimentacao];
 

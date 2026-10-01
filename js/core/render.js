@@ -13,7 +13,7 @@ let filaRender = Promise.resolve();
 
 /** Tab bar shared by every screen. */
 export function tabs() {
-  return `<div class="tabs">${[['treino', 'Treino'], ['rotina', 'Rotina'], ['foco', 'Foco'], ['med', 'Medidas'], ['alim', 'Alim.'], ['rel', 'Relatório']]
+  return `<div class="tabs">${[['treino', 'Treino'], ['rotina', 'Rotina'], ['foco', 'Foco'], ['med', 'Medidas'], ['alim', 'Alim.'], ['rel', 'Relatório'], ['cfg', 'Ajustes']]
     .map(t => `<button data-a="tela" data-t="${t[0]}" class="${state.tela === t[0] ? 'on' : ''}">${t[1]}</button>`)
     .join('')}</div>`;
 }

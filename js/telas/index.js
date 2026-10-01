@@ -9,5 +9,6 @@ import * as alimentacao from './alimentacao.js';
 import * as relatorio from './relatorio.js';
 import * as rotina from './rotina.js';
 import * as foco from './foco.js';
+import * as configuracoes from './configuracoes.js';
 
-export { treino, medidas, alimentacao, relatorio, rotina, foco };
+export { treino, medidas, alimentacao, relatorio, rotina, foco, configuracoes };
