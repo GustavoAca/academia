@@ -28,6 +28,7 @@
   --ok:#1e8a55;
   --oks:#dcf1e5;
   --warn:#c0641a;
+  --err:#d92d20;
   color-scheme:light dark
 }
 
@@ -42,7 +43,8 @@
     --acs:#243056;
     --ok:#5fd394;
     --oks:#17352a;
-    --warn:#f0a35e
+    --warn:#f0a35e;
+    --err:#ff7b72
   }
 }
 
@@ -1355,4 +1357,148 @@ input, select, textarea {
 
 .sw.on::after {
   transform:translateX(20px)
+}
+
+/* --- 16. Alimentação: resumo do dia, unidade de registro e pratos -------- */
+.kpi input {
+  display:block;
+  width:100%;
+  min-width:0;
+  border:0;
+  background:transparent;
+  padding:0;
+  font-family:inherit;
+  font-size:clamp(18px,5vw,22px);
+  font-weight:700;
+  font-variant-numeric:tabular-nums;
+  color:var(--ink)
+}
+
+.kpi input::placeholder {
+  color:var(--mut);
+  font-weight:400;
+  opacity:.5
+}
+
+.kpi input:focus {
+  outline:2px solid var(--ac);
+  outline-offset:3px;
+  border-radius:4px
+}
+
+/* resumo do dia: rótulo em cima, e o dia inteiro em uma linha só
+   (kcal consumidas + o que falta na esquerda, o gráfico da meta na direita) */
+.kpi.kpi-larga {
+  grid-column:1/-1
+}
+
+.kpi-rot {
+  display:block;
+  margin-bottom:2px
+}
+
+.dia-linha {
+  display:flex;
+  gap:12px;
+  align-items:center;
+  margin-top:2px
+}
+
+.dia-txt {
+  flex:1 1 auto;
+  min-width:0
+}
+
+.kpi .dia-delta {
+  display:block;
+  color:var(--mut)
+}
+
+.dia-delta.neg {
+  color:var(--err)
+}
+
+.dia-graf {
+  flex:0 0 auto;
+  width:min(56%,200px);
+  min-width:0
+}
+
+.dia-graf .barra-dia {
+  margin-top:0
+}
+
+.kpi.neg b {
+  color:var(--err)
+}
+
+.barra-dia {
+  display:flex;
+  gap:8px;
+  align-items:center;
+  margin-top:8px
+}
+
+.barra-dia .bar {
+  flex:1;
+  min-width:0
+}
+
+.barra-dia span {
+  font-size:12px;
+  color:var(--mut);
+  font-variant-numeric:tabular-nums;
+  white-space:nowrap
+}
+
+.anel.excedeu {
+  background:conic-gradient(var(--err) calc(var(--p) * 3.6deg), var(--line) calc(var(--p) * 3.6deg))
+}
+
+.unid-seg {
+  display:flex;
+  gap:6px;
+  margin-top:4px;
+  padding:4px;
+  border:1.5px solid var(--line);
+  border-radius:12px;
+  background:var(--bg)
+}
+
+.unid-seg button {
+  flex:1;
+  min-width:0;
+  min-height:40px;
+  padding:0 6px;
+  border:0;
+  border-radius:9px;
+  background:transparent;
+  color:var(--mut);
+  font-family:inherit;
+  font-size:14px;
+  font-weight:600;
+  cursor:pointer
+}
+
+.unid-seg button.on {
+  background:var(--card);
+  color:var(--ink);
+  box-shadow:0 1px 3px rgba(0,0,0,.14)
+}
+
+/* unidade vinda do alimento: parece a opção acesa, mas não é clicável —
+   só as unidades (peças) continuam à escolha */
+.unid-seg .unid-lock {
+  flex:1;
+  min-width:0;
+  min-height:40px;
+  display:grid;
+  place-items:center;
+  padding:0 6px;
+  border-radius:9px;
+  background:var(--card);
+  color:var(--ink);
+  box-shadow:0 1px 3px rgba(0,0,0,.14);
+  font-size:14px;
+  font-weight:700
 }

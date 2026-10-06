@@ -24,7 +24,13 @@ export const state = {
   relSec: 'treino', // report section: 'treino' | 'corpo' | 'alim'
   alimEdit: null,   // id of the day's item being edited (Alimentação screen)
   alimEditRef: null, // kcal per 100 g of the item being edited
+  alimEditUnidade: null, // unidade do item em edição: 'g' | 'ml' | 'un' (null = a do registro)
+  alimUnidade: 'g', // unidade do próximo registro: 'g' | 'ml' | 'un' (Alimentação)
+  alimUnidadeAuto: false, // true quando a unidade vem do alimento escolhido (travada, sem trocar g × ml)
+  alimNome: '',     // alimento escolhido no registro (sobrevive aos repaints da tela)
   alimCriar: false,  // show the catalog's "new food" form (Alimentação screen)
+  alimPrato: false,  // show the dish/recipe builder (Alimentação screen)
+  alimReceita: { nome: '', itens: [] }, // rascunho do prato em montagem (nome + ingredientes)
   rotinaTravou: false, // o salvamento travou o Início para preservar o histórico
   ajustes: { circular: true, pct: true }, // exibição (ajustes-service, recarregado no boot)
   foco: { passo: 1, grupos: [], dias: 4 } // wizard da aba Foco

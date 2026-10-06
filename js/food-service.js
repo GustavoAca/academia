@@ -1,15 +1,19 @@
 /**
- * Food Service - registro de alimentação (refeições, itens, macros e relatórios).
+ * Food Service - registro de alimentação (refeições, itens, pratos, macros e relatórios).
  *
- * A pessoa registra o que comeu em cada refeição: alimento, gramas, calorias
- * e os macros da porção (proteína, carboidrato e gordura, em gramas). As
+ * A pessoa registra o que comeu em cada refeição: alimento, quantidade (em
+ * gramas, em ml ou em unidades com o peso médio de cada uma), calorias e os
+ * macros da porção (proteína, carboidrato e gordura, em gramas). As
  * refeições vêm prontas (café da manhã, almoço, café da tarde e janta), mas
  * podem ser renomeadas, criadas ou removidas pela própria pessoa. Cada
  * alimento usado alimenta um catálogo que guarda as calorias por 100 g
  * (kcal100) e os macros por 100 g (prot100, carb100, gord100), permitindo
- * recalcular calorias e macros ao reutilizá-lo. Com as três referências de
- * macros completas e as calorias vazias, as calorias são derivadas delas
- * (4/4/9 kcal por grama).
+ * recalcular calorias e macros ao reutilizá-lo. Pratos e receitas entram no
+ * mesmo catálogo: as referências vêm da soma dos ingredientes. Com as três
+ * referências de macros completas e as calorias vazias, as calorias são
+ * derivadas delas (4/4/9 kcal por grama). Cada alimento declara também a
+ * unidade em que é medido (g ou ml, com 1 ml contando como 1 g): ela guia o
+ * registro e muda junto com os lançamentos já feitos daquele alimento.
  */
 
 import {
@@ -41,6 +45,9 @@ const CHAVE_META_MACROS = 'metaMacros';
 
 /** Per-100 g reference fields editable in the catalog. */
 const CAMPOS_REF = { kcal100: 1, prot100: 1, carb100: 1, gord100: 1 };
+
+/** Amount units accepted when logging a portion: grams, ml or pieces. */
+const UNIDADES = ['g', 'ml', 'un'];
 
 /** Page size shared by the food suggestion lists (type-ahead and catalog). */
 const TAM_PAGINA = 15;
@@ -75,6 +82,83 @@ function kcalDosMacros(refs) {
 function porcaoDe(ref100, gramas) {
   if (!temRef(ref100) || !(gramas > 0)) return null;
   return r1(gramas * num(ref100) / 100);
+}
+
+/**
+ * Normalize a unit code, defaulting to grams when nothing was informed.
+ * @param {string|null} [u] - 'g', 'ml' or 'un'
+ * @returns {string|null} the known unit, or null for an unknown one
+ */
+function unidadeDe(u) {
+  const bruto = u === null || u === undefined ? '' : String(u).trim().toLowerCase();
+  const chave = bruto === '' ? 'g' : bruto;
+  return UNIDADES.includes(chave) ? chave : null;
+}
+
+/**
+ * Unit a catalog food is measured in: 'g' or 'ml'. Foods saved before the
+ * unit existed (and pieces) fall back to grams.
+ * @param {Object|null} [f] - catalog food
+ * @returns {string} 'g' | 'ml'
+ */
+function unidadeDoAlimento(f) {
+  const u = f && f.unidade !== null && f.unidade !== undefined ? String(f.unidade).trim().toLowerCase() : '';
+  return u === 'ml' ? 'ml' : 'g';
+}
+
+/**
+ * Read the amount informed for a portion and normalize it to grams. Pieces
+ * are the amount times the average weight of one piece; g and ml are taken as
+ * typed (in the conversion 1 ml counts as 1 g).
+ * @param {Object} p - { gramas } or { qtd, pesoUnit }
+ * @param {string} unidade - 'g' | 'ml' | 'un'
+ * @param {{obrigatorio?: boolean}} [op] - false returns nulls instead of
+ *   failing when nothing was informed (invalid values always fail)
+ * @returns {{gramas: number|null, qtd: number|null, pesoUnit: number|null}}
+ * @throws {Error} with a pt-BR message when the amount is missing or invalid
+ */
+function lerPorcao(p, unidade, op) {
+  const obrigatorio = !op || op.obrigatorio !== false;
+  const bruto = campo => (p && p[campo] !== undefined && p[campo] !== null ? String(p[campo]).trim() : '');
+
+  if (unidade === 'un') {
+    const qtdTxt = bruto('qtd');
+    const pesoTxt = bruto('pesoUnit');
+    if (qtdTxt === '' || pesoTxt === '') {
+      if (obrigatorio) throw new Error(qtdTxt === '' ? 'Informe as unidades' : 'Informe o peso médio por unidade');
+      return { gramas: null, qtd: null, pesoUnit: null };
+    }
+    const qtd = num(qtdTxt);
+    const pesoUnit = num(pesoTxt);
+    if (!isFinite(qtd) || qtd <= 0) throw new Error('Unidades inválidas');
+    if (!isFinite(pesoUnit) || pesoUnit <= 0) throw new Error('Peso médio inválido');
+    return { gramas: r1(qtd * pesoUnit), qtd: r1(qtd), pesoUnit: r1(pesoUnit) };
+  }
+
+  const gramasTxt = bruto('gramas');
+  if (gramasTxt === '') {
+    if (obrigatorio) throw new Error(unidade === 'ml' ? 'Informe os ml' : 'Informe as gramas');
+    return { gramas: null, qtd: null, pesoUnit: null };
+  }
+  const gramas = num(gramasTxt);
+  if (!isFinite(gramas) || gramas <= 0) throw new Error(unidade === 'ml' ? 'Ml inválidos' : 'Gramas inválidas');
+  return { gramas: r1(gramas), qtd: null, pesoUnit: null };
+}
+
+/**
+ * Total grams behind an informed amount, without failing: invalid or missing
+ * values simply give null (used by the form hints).
+ * @param {{unidade?: string, gramas?: string|number|null, qtd?: string|number|null, pesoUnit?: string|number|null}} p
+ * @returns {number|null}
+ */
+function totalGramas(p) {
+  try {
+    const unidade = unidadeDe(p && p.unidade);
+    if (!unidade) return null;
+    return lerPorcao(p, unidade, { obrigatorio: false }).gramas;
+  } catch (_) {
+    return null;
+  }
 }
 
 /**
@@ -260,40 +344,46 @@ async function salvarMetaMacros(p) {
  * Register what was eaten in a meal. When the food has a calorie reference
  * per 100 g, the grams are converted automatically and the typed value is
  * ignored; otherwise the typed calories are used and become the reference.
- * @param {Object} p - { data, refeicaoId, alimento, gramas, calorias }
+ * The amount can be informed in grams, in ml (1 ml counts as 1 g) or in
+ * pieces — pieces need the average weight of one, and the total in grams is
+ * what feeds the conversion. Left without a unit, the record takes the unit
+ * of the catalog food (g or ml).
+ * @param {Object} p - { data, refeicaoId, alimento, unidade, gramas, qtd, pesoUnit, calorias }
  * @returns {Promise<Object>} the saved entry
  */
 async function adicionarItem(p) {
   const data = String(p && p.data || '');
   const refeicaoId = String(p && p.refeicaoId || '');
   const alimento = String(p && p.alimento || '').trim();
-  const gramasRaw = p && p.gramas !== undefined && p.gramas !== null ? String(p.gramas).trim() : '';
   const caloriasRaw = p && p.calorias !== undefined && p.calorias !== null ? String(p.calorias).trim() : '';
 
   if (!DATA_RE.test(data)) throw new Error('Data inválida');
   if (!alimento) throw new Error('Informe o alimento');
+
+  // Sem unidade explícita a validação segue antes do banco em gramas, e é o
+  // alimento que decide o rótulo do registro (g ou ml) depois de lido.
+  const unidadeInformada = !!(p && p.unidade !== undefined && p.unidade !== null && String(p.unidade).trim() !== '');
+  const unidade = unidadeDe(p && p.unidade);
+  if (unidadeInformada && !unidade) throw new Error('Unidade inválida');
+  const porcao = lerPorcao(p, unidadeInformada ? unidade : 'g');
 
   const refeicoes = await getRefeicoes();
   if (!refeicoes.some(r => r.id === refeicaoId)) throw new Error('Escolha a refeição');
 
   const nome = alimento.toLowerCase();
   const existente = await getFoodByNome(nome);
+  const unidadeFinal = unidadeInformada ? unidade : unidadeDoAlimento(existente);
   const kcal100 = existente && isFinite(Number(existente.kcal100)) && Number(existente.kcal100) > 0
     ? r1(existente.kcal100)
     : null;
 
-  let gramas = null;
-  if (gramasRaw !== '') {
-    gramas = num(gramasRaw);
-    if (!isFinite(gramas) || gramas <= 0) throw new Error('Gramas inválidas');
-    gramas = r1(gramas);
-  }
+  const gramas = porcao.gramas;
 
   let calorias;
   if (kcal100 !== null) {
     // Padrão: com a referência de 100 g, as calorias vêm sempre da conversão
     // das gramas comidas — o valor digitado é ignorado.
-    if (gramas === null) throw new Error('Informe as gramas');
+    if (gramas === null) throw new Error('Informe a quantidade');
     calorias = r1(gramas * kcal100 / 100);
   } else {
     if (caloriasRaw === '') throw new Error('Informe as calorias');
@@ -305,6 +395,10 @@ async function adicionarItem(p) {
     data,
     refeicaoId,
     alimento,
+    unidade: unidadeFinal,
+    // unidades e peso médio médio só fazem sentido em 'un' (null nos outros casos)
+    qtd: porcao.qtd,
+    pesoUnit: porcao.pesoUnit,
     gramas,
     calorias,
     // referência de 100 g usada neste registro (fica no histórico)
@@ -320,7 +414,7 @@ async function adicionarItem(p) {
   const base = existente || {};
   const temGramas = gramas !== null && gramas > 0;
 
-  await upsertFood({
+  const novo = {
     nome,
     exibicao: alimento,
     vezes: (base.vezes || 0) + 1,
@@ -328,7 +422,12 @@ async function adicionarItem(p) {
     ultimoCalorias: calorias,
     // a referência só é preenchida na primeira vez; depois, só muda quem edita
     kcal100: base.kcal100 !== undefined && base.kcal100 !== null ? base.kcal100 : entry.kcal100
-  });
+  };
+  // a primeira gravação declara com que unidade o alimento é medido (peças não)
+  if ((base.unidade === undefined || base.unidade === null) && unidadeFinal !== 'un') {
+    novo.unidade = unidadeFinal;
+  }
+  await upsertFood(novo);
 
   return salvo;
 }
@@ -397,6 +496,58 @@ async function salvarReferencia(nome, valor, campo) {
 }
 
 /**
+ * True when a logged entry follows a food's unit change (g ⇄ ml): only grams
+ * and ml move, and only the label — 1 ml counts as 1 g, so amounts never
+ * change. Pieces ('un') are a choice of their own and stay as they are, and
+ * entries of other foods are never touched.
+ * @param {Object} i - food entry
+ * @param {string} chave - lowercase key of the food being changed
+ * @param {string} nova - the new unit, 'g' or 'ml'
+ * @returns {boolean}
+ */
+function itemTrocaUnidade(i, chave, nova) {
+  if (!i || chaveDe(i.alimento) !== chave) return false;
+  const atual = unidadeDe(i.unidade) || 'g';
+  return (atual === 'g' || atual === 'ml') && atual !== nova;
+}
+
+/**
+ * Change the unit a food is measured in (g ⇄ ml) and bring the records
+ * already made with the old unit along, so the change is visible everywhere:
+ * the day's list, the register form and the suggestions. Nothing is
+ * converted — 1 ml counts as 1 g, so only the label changes.
+ * @param {string} nome - food name (display or catalog key)
+ * @param {string} nova - 'g' or 'ml'
+ * @returns {Promise<{food: Object, trocados: number}>} the saved food and how
+ *   many records followed it
+ */
+async function salvarUnidadeAlimento(nome, nova) {
+  const chave = chaveDe(nome);
+  if (!chave) throw new Error('Informe o alimento');
+  const unidade = unidadeDe(nova);
+  if (unidade !== 'g' && unidade !== 'ml') throw new Error('Unidade inválida (use g ou ml)');
+
+  const existente = await getFoodByNome(chave);
+  if (!existente) throw new Error('Alimento não encontrado no catálogo');
+  if (unidadeDoAlimento(existente) === unidade) return { food: existente, trocados: 0 };
+
+  await upsertFood({ nome: chave, unidade });
+
+  let trocados = 0;
+  const itens = await getAllFoodEntries();
+  for (const i of itens) {
+    if (!itemTrocaUnidade(i, chave, unidade)) continue;
+    try {
+      await updateFoodEntry(i.id, { unidade });
+      trocados++;
+    } catch (err) {
+      console.warn('Não foi possível trocar a unidade de um registro:', err.message);
+    }
+  }
+  return { food: { ...existente, unidade }, trocados };
+}
+
+/**
  * Find a catalog food by name (used to auto-calculate calories).
  * @param {string} nome
  * @returns {Promise<Object|null>}
@@ -405,6 +556,105 @@ async function buscarAlimento(nome) {
   const chave = String(nome || '').trim().toLowerCase();
   if (!chave) return null;
   return getFoodByNome(chave);
+}
+
+/* --- Pratos e receitas --- */
+
+/**
+ * Sum the portions of a recipe's ingredients into the dish's totals. Every
+ * ingredient carries its per-100 g references and the amount used; the
+ * calories fall back to the 4/4/9 sum of the macros when only they are known.
+ * Pure helper (unit-tested without the database).
+ * @param {Array<{alimento?: string, gramas: number|string, kcal100?: any, prot100?: any, carb100?: any, gord100?: any}>} itens
+ * @returns {{gramas: number, kcal: number, prot: number, carb: number, gord: number}}
+ * @throws {Error} when the list is empty, an amount is invalid or an ingredient has no references
+ */
+function totaisDaReceita(itens) {
+  if (!Array.isArray(itens) || !itens.length) throw new Error('Adicione ao menos um ingrediente');
+
+  const tot = { gramas: 0, kcal: 0, prot: 0, carb: 0, gord: 0 };
+  for (const i of itens) {
+    const nome = (i && i.alimento) || 'ingrediente';
+    const g = i && i.gramas !== undefined && i.gramas !== null && String(i.gramas).trim() !== ''
+      ? num(i.gramas)
+      : NaN;
+    if (!isFinite(g) || g <= 0) throw new Error(`Quantidade inválida de ${nome}`);
+
+    const temKcal = temRef(i && i.kcal100);
+    const temMacros = temRef(i && i.prot100) && temRef(i && i.carb100) && temRef(i && i.gord100);
+    if (!temKcal && !temMacros) throw new Error(`${nome} não tem referências por 100 g`);
+
+    tot.gramas += g;
+    tot.kcal += g * (temKcal ? num(i.kcal100) : kcalDosMacros(i)) / 100;
+    tot.prot += temRef(i.prot100) ? g * num(i.prot100) / 100 : 0;
+    tot.carb += temRef(i.carb100) ? g * num(i.carb100) / 100 : 0;
+    tot.gord += temRef(i.gord100) ? g * num(i.gord100) / 100 : 0;
+  }
+  return {
+    gramas: r1(tot.gramas),
+    kcal: r1(tot.kcal),
+    prot: r1(tot.prot),
+    carb: r1(tot.carb),
+    gord: r1(tot.gord)
+  };
+}
+
+/**
+ * Save a dish (a recipe of catalog foods) as a new catalog food: the sum of
+ * the ingredients becomes the per-100 g references, so the dish can be logged
+ * like any other food. Re-saving an existing name updates its references.
+ * @param {{nome: string, ingredientes: Array<{alimento: string, gramas: number|string}>}} p
+ * @returns {Promise<Object>} the saved food with the dish totals
+ * @throws {Error} before touching the database when the name or the list is missing
+ */
+async function salvarPrato(p) {
+  const nome = String(p && p.nome || '').trim();
+  if (!nome) throw new Error('Informe o nome do prato');
+
+  const lista = (p && Array.isArray(p.ingredientes) ? p.ingredientes : [])
+    .map(i => ({ alimento: String(i && i.alimento || '').trim(), gramas: i && i.gramas }))
+    .filter(i => i.alimento);
+  if (!lista.length) throw new Error('Adicione ao menos um ingrediente');
+
+  const resolvidos = [];
+  for (const ing of lista) {
+    const f = await buscarAlimento(ing.alimento);
+    if (!f) throw new Error(`${ing.alimento} não está no catálogo`);
+    resolvidos.push({
+      ...ing,
+      exibicao: f.exibicao || f.nome,
+      kcal100: f.kcal100,
+      prot100: f.prot100,
+      carb100: f.carb100,
+      gord100: f.gord100
+    });
+  }
+
+  const tot = totaisDaReceita(resolvidos);
+  if (!(tot.kcal > 0)) throw new Error('O prato precisa de calorias');
+  const por100 = valor => r1(valor / tot.gramas * 100);
+
+  const chave = nome.toLowerCase();
+  const existente = await getFoodByNome(chave);
+  const food = {
+    nome: chave,
+    exibicao: nome,
+    vezes: existente ? (existente.vezes || 0) : 0,
+    ultimoGramas: existente && existente.ultimoGramas !== undefined ? existente.ultimoGramas : null,
+    ultimoCalorias: existente && existente.ultimoCalorias !== undefined ? existente.ultimoCalorias : null,
+    kcal100: por100(tot.kcal),
+    prot100: por100(tot.prot),
+    carb100: por100(tot.carb),
+    gord100: por100(tot.gord),
+    // o catálogo não tem coluna de "prato": um booleano e a receita bastam
+    prato: true,
+    // prato é definido por peso: a unidade dele é sempre o grama
+    unidade: 'g',
+    rende: tot.gramas,
+    ingredientes: resolvidos.map(i => ({ alimento: i.exibicao, gramas: r1(num(i.gramas)) }))
+  };
+  await upsertFood(food);
+  return { ...food, ...tot };
 }
 
 async function removerItem(id) {
@@ -454,12 +704,13 @@ async function atualizarUltimosDoCatalogo(chave, entry, novos) {
 }
 
 /**
- * Change the grams, the calories and/or the meal of a day's item without
+ * Change the amount, the calories and/or the meal of a day's item without
  * removing it. With a calorie reference (catalog first, then the entry's own)
  * the calories are recalculated from the grams; otherwise the typed calories
- * are used.
+ * are used. The unit (g, ml or pieces) can also change: switching to pieces
+ * without a new amount keeps the same total in grams (1 piece of that weight).
  * @param {number} id - food entry id
- * @param {Object} p - { gramas, calorias, refeicaoId } (null/undefined keeps the current value)
+ * @param {Object} p - { unidade, gramas, qtd, pesoUnit, calorias, refeicaoId } (null/undefined keeps the current value)
  * @returns {Promise<Object>} the updated entry
  */
 async function editarItem(id, p) {
@@ -475,7 +726,6 @@ async function editarItem(id, p) {
     if (!refeicoes.some(r => r.id === refeicaoIdRaw)) throw new Error('Escolha a refeição');
   }
 
-  const gramasRaw = p && p.gramas !== undefined && p.gramas !== null ? String(p.gramas).trim() : null;
   const caloriasRaw = p && p.calorias !== undefined && p.calorias !== null ? String(p.calorias).trim() : null;
 
   const chave = chaveDe(atual.alimento);
@@ -484,17 +734,46 @@ async function editarItem(id, p) {
     ? r1(cat.kcal100)
     : (isFinite(Number(atual.kcal100)) && Number(atual.kcal100) > 0 ? r1(atual.kcal100) : null);
 
-  let gramas = atual.gramas === undefined ? null : atual.gramas;
-  if (gramasRaw === '') gramas = null;
-  else if (gramasRaw !== null) {
-    gramas = num(gramasRaw);
-    if (!isFinite(gramas) || gramas <= 0) throw new Error('Gramas inválidas');
-    gramas = r1(gramas);
+  const unidadeAtual = unidadeDe(atual.unidade) || 'g';
+  let unidade = unidadeAtual;
+  if (p && p.unidade !== undefined && p.unidade !== null && String(p.unidade).trim() !== '') {
+    unidade = unidadeDe(p.unidade);
+    if (!unidade) throw new Error('Unidade inválida');
   }
+  const trocou = unidade !== unidadeAtual;
+  const informado = campo => !!(p && p[campo] !== undefined && p[campo] !== null);
+  const vazio = valor => valor === null || valor === undefined || String(valor).trim() === '';
+
+  let porcao;
+  if (unidade === 'un') {
+    let base = {
+      qtd: informado('qtd') ? p.qtd : atual.qtd,
+      pesoUnit: informado('pesoUnit') ? p.pesoUnit : atual.pesoUnit
+    };
+    if (trocou && (vazio(base.qtd) || vazio(base.pesoUnit))) {
+      // trocar para 'un' sem novo valor mantém a mesma comida: 1 unidade do total
+      const total = informado('gramas') && !vazio(p.gramas)
+        ? totalGramas({ unidade: 'g', gramas: p.gramas })
+        : (Number(atual.gramas) > 0 ? r1(atual.gramas) : null);
+      if (total) base = { qtd: 1, pesoUnit: total };
+    }
+    porcao = lerPorcao(base, unidade, { obrigatorio: false });
+  } else {
+    porcao = lerPorcao(
+      { gramas: informado('gramas') ? p.gramas : (trocou ? null : atual.gramas) },
+      unidade,
+      { obrigatorio: false }
+    );
+  }
+  const gramas = porcao.gramas;
 
   let calorias;
   if (kcal100 !== null) {
-    if (gramas === null) throw new Error('Informe as gramas');
+    if (gramas === null) {
+      throw new Error(unidade === 'un'
+        ? 'Informe as unidades e o peso médio'
+        : unidade === 'ml' ? 'Informe os ml' : 'Informe as gramas');
+    }
     calorias = r1(gramas * kcal100 / 100);
   } else {
     const raw = caloriasRaw !== null
@@ -507,6 +786,9 @@ async function editarItem(id, p) {
 
   const salvo = await updateFoodEntry(id, {
     ...(refeicaoIdRaw !== null ? { refeicaoId: refeicaoIdRaw } : {}),
+    unidade,
+    qtd: porcao.qtd,
+    pesoUnit: porcao.pesoUnit,
     gramas,
     calorias,
     kcal100: kcal100 !== null ? kcal100 : (gramas !== null ? r1(calorias / gramas * 100) : null),
@@ -824,6 +1106,12 @@ async function primeiraData() {
 
 export {
   REFEICOES_PADRAO,
+  UNIDADES,
+  unidadeDe,
+  unidadeDoAlimento,
+  lerPorcao,
+  totalGramas,
+  itemTrocaUnidade,
   getRefeicoes,
   salvarRefeicoes,
   criarRefeicao,
@@ -846,6 +1134,9 @@ export {
   moverItem,
   buscarAlimento,
   salvarReferencia,
+  salvarUnidadeAlimento,
+  totaisDaReceita,
+  salvarPrato,
   getItensDoDia,
   getCatalogo,
   buscarCatalogo,
