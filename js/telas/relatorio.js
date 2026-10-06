@@ -28,7 +28,7 @@ import {
 import { dataParaDate, defsDoDia, rotinaNaData } from '../rotina-service.js';
 import { MED, num, getAllMeasurementsDesc } from '../measurement-service.js';
 import { getAllExecutions } from '../report-service.js';
-import { getAllCardios, todosPulados, paceDe } from '../cardio-service.js';
+import { getAllCardios, todosPulados, paceDe, formatarTempo } from '../cardio-service.js';
 import {
   getMeta,
   historicoCalorias,
@@ -238,19 +238,19 @@ async function secTreino(desde) {
   cardios.forEach(c => { porTipo[c.tipo] = (porTipo[c.tipo] || 0) + (Number(c.minutos) || 0); });
   const tipos = Object.entries(porTipo).sort((a, b) => b[1] - a[1]);
   const maxTipo = Math.max(1, ...tipos.map(t => t[1]));
-  const linhasTipo = tipos.map(([n, m]) => `<div class="hbar"><span>${esc(n)}</span><span><i style="width:${(m / maxTipo * 100).toFixed(0)}%"></i></span><span style="white-space:nowrap">${f1(m)} min</span></div>`).join('');
+  const linhasTipo = tipos.map(([n, m]) => `<div class="hbar"><span>${esc(n)}</span><span><i style="width:${(m / maxTipo * 100).toFixed(0)}%"></i></span><span style="white-space:nowrap">${formatarTempo(m)}</span></div>`).join('');
   const histCardio = cardios.slice(0, 10)
-    .map(c => `<tr><td>${brd(c.data)}</td><td style="text-align:left">${esc(c.tipo)}</td><td>${f1(Number(c.minutos) || 0)}</td>${temDist ? `<td>${c.distancia ? Number(c.distancia).toLocaleString('pt-BR', { maximumFractionDigits: 2 }) : ''}</td><td>${paceDe(c.minutos, c.distancia) || ''}</td>` : ''}</tr>`)
+    .map(c => `<tr><td>${brd(c.data)}</td><td style="text-align:left">${esc(c.tipo)}</td><td>${formatarTempo(c.minutos)}</td>${temDist ? `<td>${c.distancia ? Number(c.distancia).toLocaleString('pt-BR', { maximumFractionDigits: 2 }) : ''}</td><td>${paceDe(c.minutos, c.distancia) || ''}</td>` : ''}</tr>`)
     .join('');
 
   const kmTxt = kmTotal > 0 ? ` · ${f1(kmTotal)} km` : '';
   const cabecalho = temDist
-    ? '<tr><th style="width:18%">Dia</th><th style="width:44%;text-align:left">Atividade</th><th style="width:14%">Min</th><th style="width:12%">Km</th><th style="width:12%">Pace</th></tr>'
-    : '<tr><th style="width:26%">Dia</th><th style="width:54%;text-align:left">Atividade</th><th style="width:20%">Min</th></tr>';
+    ? '<tr><th style="width:18%">Dia</th><th style="width:40%;text-align:left">Atividade</th><th style="width:18%">Tempo</th><th style="width:12%">Km</th><th style="width:12%">Pace</th></tr>'
+    : '<tr><th style="width:26%">Dia</th><th style="width:50%;text-align:left">Atividade</th><th style="width:24%">Tempo</th></tr>';
 
   const cardioCard = `<div class="card sec"><h2>Cardio</h2>
-    <div class="sub">${cardios.length} registros · ${diasCardio} ${diasCardio === 1 ? 'dia' : 'dias'} · ${Math.floor(minTotal / 60)}h ${Math.round(minTotal % 60)}min${kmTxt} no período${pulosTxt}</div>
-    ${cardios.length ? `${barras(minSem, at, 'min', sems)}${linhasTipo ? `<div class="meta" style="margin-top:12px">Minutos por tipo</div>${linhasTipo}` : ''}
+    <div class="sub">${cardios.length} registros · ${diasCardio} ${diasCardio === 1 ? 'dia' : 'dias'} · ${formatarTempo(minTotal)}${kmTxt} no período${pulosTxt}</div>
+    ${cardios.length ? `${barras(minSem, at, 'min', sems, minSem.some(x => x > 0) ? formatarTempo : null)}${linhasTipo ? `<div class="meta" style="margin-top:12px">Tempo por tipo</div>${linhasTipo}` : ''}
       <table class="tb" style="margin-top:10px">${cabecalho}${histCardio}</table>` : '<div class="meta">Nenhum cardio no período. Registre nas barras da tela Treino.</div>'}
   </div>`;
 

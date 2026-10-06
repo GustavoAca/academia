@@ -13,12 +13,14 @@ import { f1, brd } from './utils.js';
  * @param {number} at - index highlighted as the current period
  * @param {string} [unidade] - unit shown next to the maximum value
  * @param {Array<string|number>} [rotulos] - x-axis labels
+ * @param {(max: number) => string} [fmt] - renders the scale label instead of "max unidade"
  */
-export function barras(v, at, unidade = 'kg', rotulos = null) {
+export function barras(v, at, unidade = 'kg', rotulos = null, fmt = null) {
   if (!v.length) return '';
   const W = 320, H = 110, m = Math.max(...v, 1), bw = W / v.length;
   const lab = rotulos || v.map((_, i) => i + 1);
-  return `<svg class="gr" viewBox="0 0 ${W} ${H + 16}"><text x="0" y="8">${Math.round(m).toLocaleString('pt-BR')} ${unidade}</text>` + v.map((y, i) => {
+  const escala = fmt ? fmt(m) : `${Math.round(m).toLocaleString('pt-BR')} ${unidade}`;
+  return `<svg class="gr" viewBox="0 0 ${W} ${H + 16}"><text x="0" y="8">${escala}</text>` + v.map((y, i) => {
     const h = y / m * (H - 16);
     return `<rect class="b${i + 1 === at ? ' at' : ''}" x="${i * bw + 2}" y="${H - h}" width="${bw - 4}" height="${Math.max(h, 2)}" rx="3"/><text x="${i * bw + bw / 2}" y="${H + 12}" text-anchor="middle">${lab[i]}</text>`;
   }).join('') + '</svg>';

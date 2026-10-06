@@ -3,7 +3,7 @@
  * bottom navigation between steps.
  */
 
-import { DIAS, CURTO, LONGO, iso, fmt, esc, f1, ok } from '../core/utils.js';
+import { DIAS, CURTO, LONGO, iso, fmt, esc, ok } from '../core/utils.js';
 import { state, store, gravar, aguardarGravacoes } from '../core/estado.js';
 import { MAXS, dataDe, defsAtuais, idsAtuais, passos, exAtual, catalogoEm, rotinaSelecionada, rotinaEm } from '../core/programa.js';
 import {
@@ -23,6 +23,7 @@ import {
   TIPOS_COM_DISTANCIA,
   adicionarCardio,
   paceDe,
+  formatarTempo,
   getPulados,
   setPulado,
   getCardiosByDate,
@@ -67,7 +68,7 @@ export async function telaTreino() {
     if (pulados[m]) return { txt: 'pulado', ok: false };
     const total = cardiosDia.filter(x => (x.momento || 'f') === m)
       .reduce((a, x) => a + (Number(x.minutos) || 0), 0);
-    return total > 0 ? { txt: f1(total) + ' min', ok: true } : { txt: 'pendente', ok: false };
+    return total > 0 ? { txt: formatarTempo(total), ok: true } : { txt: 'pendente', ok: false };
   };
 
   const descansoCard = `<div class="card"><span class="grp">Descanso</span><h1>Dia sem treino</h1>
@@ -163,7 +164,7 @@ export async function cardPassoCardio(m, pulados, cardiosDia) {
   const total = lista.reduce((a, x) => a + (Number(x.minutos) || 0), 0);
 
   const itens = lista.map(x => {
-    const partes = [`${f1(Number(x.minutos) || 0)} min`];
+    const partes = [formatarTempo(x.minutos)];
     if (x.distancia) partes.push(`${Number(x.distancia).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} km`);
     const pace = paceDe(x.minutos, x.distancia);
     if (pace) partes.push(`${pace} /km`);
@@ -177,11 +178,11 @@ export async function cardPassoCardio(m, pulados, cardiosDia) {
   const temDist = TIPOS_COM_DISTANCIA.includes(cfg.tipo);
 
   return `<div class="card sec" data-cbar="${slot}"><h2>${rotulo}</h2>
-    <div class="sub">${fmt(dataDe(state.s, state.d))} · ${f1(total)} min ${slot === 'i' ? 'antes' : 'depois'} dos exercícios</div>
+    <div class="sub">${fmt(dataDe(state.s, state.d))} · ${formatarTempo(total)} ${slot === 'i' ? 'antes' : 'depois'} dos exercícios</div>
     ${itens}
     <div class="frm" style="margin-top:10px">
       <div><label>Atividade</label><select class="sel" data-k="ctipo" data-m="${slot}" id="cardioTipo" aria-label="Atividade">${tipos}<option value="__outro">Outro…</option></select></div>
-      <div><label>Tempo (min)</label><input inputmode="decimal" data-k="ctempo" id="cardioMin" value="${esc(cfg.min)}" placeholder="ex.: 30" aria-label="Minutos de cardio"></div>
+      <div><label>Tempo</label><input inputmode="text" data-k="ctempo" id="cardioMin" value="${esc(cfg.min)}" placeholder="ex.: 30, 03:11 ou 1:03:11" aria-label="Tempo de cardio em minutos ou no formato mm:ss"></div>
       <div id="cardioDistWrap" ${temDist ? '' : 'style="display:none"'}><label>Distância (km)</label><input inputmode="decimal" data-k="cdist" id="cardioDist" placeholder="ex.: 5" aria-label="Distância em quilômetros"></div>
       <div><label>Calorias (kcal)</label><input inputmode="numeric" id="cardioKcal" placeholder="ex.: 350" aria-label="Calorias queimadas"></div>
     </div>

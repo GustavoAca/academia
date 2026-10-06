@@ -8,7 +8,7 @@
  */
 
 // Bump the version whenever cached assets change so clients drop stale copies.
-const CACHE_VERSION = 'treino-cache-v37';
+const CACHE_VERSION = 'treino-cache-v38';
 let cacheName = `treino-${CACHE_VERSION}`;
 
 // We'll determine the base path dynamically during install

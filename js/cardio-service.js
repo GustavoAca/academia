@@ -40,14 +40,51 @@ const slotDe = m => (m === 'i' ? 'i' : 'f');
 const num = v => Number(String(v ?? '').replace(',', '.'));
 
 /**
+ * Duration in minutes of a cardio time. Plain numbers are minutes ('30',
+ * '30,5'), a two-part value is mm:ss ('03:11') and a three-part value is
+ * hh:mm:ss ('01:03:11'). Anything else is NaN.
+ * @param {*} valor
+ * @returns {number}
+ */
+function tempoEmMinutos(valor) {
+  const t = String(valor ?? '').trim();
+  if (!t) return NaN;
+  if (!t.includes(':')) return num(t);
+
+  const partes = t.split(':').map(p => p.trim());
+  if (partes.length < 2 || partes.length > 3) return NaN;
+  if (partes.some(p => !/^\d{1,3}$/.test(p))) return NaN;
+  const [a, b, c] = partes.map(Number);
+
+  if (partes.length === 2) return b > 59 ? NaN : a + b / 60;
+  return b > 59 || c > 59 ? NaN : a * 60 + b + c / 60;
+}
+
+/**
+ * Duration of a session as text: '30 min' when it lands on whole minutes,
+ * '03:11' (mm:ss) when it has seconds and '01:03:11' (hh:mm:ss) past an hour.
+ * @param {*} minutos - minutes
+ * @returns {string}
+ */
+function formatarTempo(minutos) {
+  const total = Math.round(num(minutos) * 60);
+  if (!isFinite(total) || total < 0) return '';
+  const dois = n => String(n).padStart(2, '0');
+  if (total % 60 === 0) return `${total / 60} min`;
+  const h = Math.floor(total / 3600);
+  const m = Math.floor(total / 60) % 60;
+  return h > 0 ? `${dois(h)}:${dois(m)}:${dois(total % 60)}` : `${dois(m)}:${dois(total % 60)}`;
+}
+
+/**
  * Pace of a session in min:seg per km ('5:32'), or null when the time or the
  * distance is missing/invalid — without both there is no pace.
- * @param {*} minutos - minutes (accepts pt-BR decimal strings)
+ * @param {*} minutos - minutes ('30') or a time ('03:11', '01:03:11')
  * @param {*} distancia - kilometers (accepts pt-BR decimal strings)
  * @returns {string|null} 'M:SS' or null
  */
 function paceDe(minutos, distancia) {
-  const min = num(minutos);
+  const min = tempoEmMinutos(minutos);
   const km = num(distancia);
   if (!isFinite(min) || min <= 0 || !isFinite(km) || km <= 0) return null;
   const seg = Math.round((min * 60) / km);
@@ -62,7 +99,7 @@ function paceDe(minutos, distancia) {
 async function adicionarCardio(p) {
   const data = String(p && p.data || '');
   const tipo = String(p && p.tipo || '').trim();
-  const minutos = num(p && p.minutos);
+  const minutos = tempoEmMinutos(p && p.minutos);
   const momento = slotDe(p && p.momento);
   const brutoDist = p && p.distancia != null ? String(p.distancia).trim() : '';
   const brutoKcal = p && p.calorias != null ? String(p.calorias).trim() : '';
@@ -70,9 +107,10 @@ async function adicionarCardio(p) {
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) throw new Error('Data inválida');
   if (!tipo) throw new Error('Escolha ou informe a atividade');
-  if (!isFinite(minutos) || minutos <= 0) throw new Error('Informe o tempo em minutos');
+  if (!isFinite(minutos) || minutos <= 0) throw new Error('Informe o tempo (ex.: 30 ou 03:11)');
 
-  const registro = { data, tipo, minutos: Math.round(minutos * 10) / 10, momento };
+  // segundos: '03:11' não pode virar 3,2 min e perder um segundo
+  const registro = { data, tipo, minutos: Math.round(minutos * 60) / 60, momento };
 
   if (brutoDist) {
     const dist = num(brutoDist);
@@ -134,6 +172,8 @@ export {
   CHAVE_PULADOS,
   adicionarCardio,
   paceDe,
+  tempoEmMinutos,
+  formatarTempo,
   getPulados,
   setPulado,
   todosPulados,

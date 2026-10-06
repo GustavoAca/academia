@@ -134,7 +134,7 @@ export function cardDiaRotina(r, dia) {
   const slotCfg = (m, cfg) => cfg.ativo ? `
     <div class="frm" style="margin-top:8px">
       <div><label>Tipo (${m === 'i' ? 'início' : 'fim'})</label><select class="sel" data-k="rcardiotipo" data-d="${dia}" data-m="${m}">${tiposOpts(cfg.tipo)}</select></div>
-      <div><label>Minutos</label><input inputmode="numeric" data-k="rcardiomin" data-d="${dia}" data-m="${m}" value="${esc(cfg.min)}" placeholder="ex.: 30" aria-label="Minutos de cardio ${m === 'i' ? 'inicial' : 'final'} de ${LONGO[i]}"></div>
+      <div><label>Tempo</label><input inputmode="text" data-k="rcardiomin" data-d="${dia}" data-m="${m}" value="${esc(cfg.min)}" placeholder="ex.: 30 ou 03:11" aria-label="Tempo de cardio ${m === 'i' ? 'inicial' : 'final'} de ${LONGO[i]} em minutos ou mm:ss"></div>
     </div>` : '';
   const cardioSec = `
     <div class="acoes" style="margin-top:12px">

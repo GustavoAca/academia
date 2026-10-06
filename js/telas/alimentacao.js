@@ -278,12 +278,23 @@ function linhaSugestao(f) {
 export function linhaCatalogo(f) {
   const nome = f.exibicao || f.nome || '';
   const unid = unidadeDoAlimento(f);
+  const ehPrato = !!f.prato;
+  const ingts = Array.isArray(f.ingredientes) ? f.ingredientes : [];
+  const registros = `${f.vezes || 0} registro${(f.vezes || 0) === 1 ? '' : 's'}`;
+  const subtitulo = ehPrato && Number(f.rende) > 0
+    ? `rende ${f1(f.rende)} g · ${registros}`
+    : registros;
   const inp = (k, v, rot) => `<div><label>${rot} por 100 ${unid}</label><input class="sel" data-k="${k}" data-n="${esc(f.nome)}" inputmode="decimal" value="${temRef(v) ? String(v).replace('.', ',') : ''}" placeholder="?" aria-label="${rot} por 100 ${unid} de ${esc(nome)}"></div>`;
+  const linhas = ehPrato && ingts.length
+    ? `<div class="pl-ing">${ingts.map(i => `<div class="li"><span class="n"><b>${esc(String(i && i.alimento || ''))}</b><small>${f1(i && i.gramas)} g</small></span></div>`).join('')}</div>`
+    : '';
   return `<div class="pl-li">
     <div class="pl-top">
-      <span class="pl-n"><b>${esc(nome)}</b><small>${f.vezes || 0} registro${(f.vezes || 0) === 1 ? '' : 's'}</small></span>
+      <span class="pl-n"><b>${esc(nome)}</b><small>${subtitulo}</small></span>
+      ${ehPrato ? '<span class="tag">Prato</span>' : ''}
       <button class="btn pl-x" data-a="alalimdel" data-v="${f.id === undefined || f.id === null ? '' : f.id}" data-n="${esc(nome)}" data-u="${f.vezes || 0}" aria-label="Excluir ${esc(nome)} do catálogo">×</button>
     </div>
+    ${linhas}
     <div class="frm">
       <div style="grid-column:1/-1"><label>Unidade</label><select class="sel" data-k="alunid" data-n="${esc(f.nome)}" aria-label="Unidade em que ${esc(nome)} é medido">
         <option value="g"${unid === 'g' ? ' selected' : ''}>g</option><option value="ml"${unid === 'ml' ? ' selected' : ''}>ml</option>
@@ -634,6 +645,33 @@ export function linhaItemDia(i, opts) {
 }
 
 /**
+ * Grams, kcal and macros of one draft ingredient, from the per-100 g
+ * references captured when it was picked — the same numbers the dish totals
+ * add up, ingredient by ingredient. Pure helper (nothing is read from the
+ * database): a missing reference becomes null and is simply not shown.
+ * @param {{gramas: number|string, kcal100?: number|null, prot100?: number|null, carb100?: number|null, gord100?: number|null}} ing
+ * @returns {{kcal: number, prot: number|null, carb: number|null, gord: number|null}}
+ */
+export function totaisDoIngrediente(ing) {
+  const vazio = { kcal: 0, prot: null, carb: null, gord: null };
+  const g = ing && ing.gramas !== null && ing.gramas !== undefined && String(ing.gramas).trim() !== ''
+    ? num(ing.gramas)
+    : NaN;
+  if (!isFinite(g) || g <= 0) return vazio;
+
+  const temKcal = temRef(ing.kcal100);
+  const temMacros = temRef(ing.prot100) && temRef(ing.carb100) && temRef(ing.gord100);
+  if (!temKcal && !temMacros) return vazio;
+
+  return {
+    kcal: g * (temKcal ? num(ing.kcal100) : kcalDosMacros(ing)) / 100,
+    prot: temRef(ing.prot100) ? g * num(ing.prot100) / 100 : null,
+    carb: temRef(ing.carb100) ? g * num(ing.carb100) / 100 : null,
+    gord: temRef(ing.gord100) ? g * num(ing.gord100) / 100 : null
+  };
+}
+
+/**
  * Totals of the dish being built, from the references captured when each
  * ingredient was picked. Pure helper: nothing is read from the database.
  * @param {Array<{alimento: string, gramas: number}>} itens - draft ingredients
@@ -651,21 +689,17 @@ export function totaisReceitaTxt(itens) {
 }
 
 /**
- * Card of the dish/recipe builder: closed behind a button until it is opened,
- * then name + ingredient (searched in the whole catalog) + the list already
- * picked and its totals.
- * @param {Array|null} alimentos - every catalog food (only loaded when open)
+ * Recipe builder living inside the catalog card: '' while it is closed and
+ * the form (ingredients, totals, save/cancel) while it is open — the button
+ * that opens it sits next to "Criar item".
+ * @param {Array|null} alimentos - whole catalog, for the ingredient list
  * @returns {string}
  */
 function htmlReceita(alimentos) {
   const r = state.alimReceita || { nome: '', itens: [] };
   const itens = Array.isArray(r.itens) ? r.itens : [];
 
-  if (!state.alimPrato) {
-    return `<div class="card sec"><h2>Pratos e receitas</h2>
-      <div class="sub">Monte um prato uma vez e registre depois como qualquer outro alimento: calorias e macros vêm da soma dos ingredientes.</div>
-      <div class="acoes"><button class="btn" data-a="pratoabrir">Criar prato</button></div></div>`;
-  }
+  if (!state.alimPrato) return '';
 
   const lista = Array.isArray(alimentos) ? alimentos : [];
   const opcoes = lista
@@ -673,11 +707,20 @@ function htmlReceita(alimentos) {
     .sort((a, b) => String(a.exibicao || a.nome).localeCompare(String(b.exibicao || b.nome), 'pt-BR'))
     .map(f => `<option value="${esc(f.exibicao || f.nome)}"></option>`)
     .join('');
-  const linhas = itens.map((ing, ix) => `<div class="li">
-    <span class="n"><b>${esc(ing.alimento)}</b><small>${f1(ing.gramas)} g</small></span>
-    <button class="btn" style="width:40px;height:40px;flex:none" data-a="pratorem" data-v="${ix}" aria-label="Remover ${esc(ing.alimento)}">×</button></div>`).join('');
+  // a linha do ingrediente segue o padrão das outras listas da tela:
+  // "Frango grelhado / 150 g · 247 kcal · P 30 g · C 0 g · G 5 g"
+  const linhas = itens.map((ing, ix) => {
+    const t = totaisDoIngrediente(ing);
+    const partes = [qtdItemTxt(ing).replace(/ · $/, '')];
+    if (t.kcal > 0) partes.push(`${f1(t.kcal)} kcal`);
+    const macros = macrosItemTxt(t).replace(/^ · /, '');
+    if (macros) partes.push(macros);
+    return `<div class="li">
+    <span class="n"><b>${esc(ing.alimento)}</b><small>${partes.filter(p => p).join(' · ')}</small></span>
+    <button class="btn" style="width:40px;height:40px;flex:none" data-a="pratorem" data-v="${ix}" aria-label="Remover ${esc(ing.alimento)}">×</button></div>`;
+  }).join('');
 
-  return `<div class="card sec"><h2>Pratos e receitas</h2>
+  return `<div style="margin-top:12px">
     <div class="sub">Some os ingredientes uma vez: o prato entra no catálogo e passa a ser registrado em um toque.</div>
     <div class="frm">
       <div style="grid-column:1/-1"><label>Nome do prato</label><input id="pratoNome" data-k="pratoNome" value="${esc(r.nome || '')}" placeholder="ex.: Frango com arroz" aria-label="Nome do prato"></div>
@@ -791,6 +834,14 @@ export function corpoAlimentacao({ data, resumoDia, refeicoes, catalogo, todosAl
     ? '<div style="grid-column:1/-1"><label>Calorias</label><input id="alimK" data-k="alimK" inputmode="decimal" placeholder="ex.: 250" aria-label="Calorias"></div>'
     : '<div><label>Calorias</label><input id="alimK" data-k="alimK" inputmode="decimal" placeholder="ex.: 250" aria-label="Calorias"></div>';
 
+  // os dois botões de criação ficam lado a lado no catálogo; cada um some
+  // enquanto o próprio formulário está aberto (que traz o Cancelar dele)
+  const mostraItem = !state.alimCriar;
+  const mostraReceita = !state.alimPrato;
+  const botoesCriacao = mostraItem || mostraReceita
+    ? `<div class="acoes">${mostraItem ? '<button class="btn" data-a="alcriar">Criar item</button>' : ''}${mostraReceita ? '<button class="btn" data-a="pratoabrir">Criar receita</button>' : ''}</div>`
+    : '';
+
   const corpo = `<div class="card sec"><h2>Resumo do dia</h2>
     <input type="date" class="sel" data-k="alimdata" value="${data}" style="margin-bottom:12px" aria-label="Data do registro">
     <div class="kpis">
@@ -828,8 +879,6 @@ export function corpoAlimentacao({ data, resumoDia, refeicoes, catalogo, todosAl
     <div class="acoes"><button class="btn p" data-a="aalim">Adicionar</button></div>
   </div>
 
-  ${htmlReceita(todosAlimentos)}
-
   <div class="card sec"><h2>Itens do dia</h2>
     <div class="sub">Arraste pela alça ⋮⋮ para trocar o item de refeição (ou segure o item) — ou edite e use o seletor.</div>${grupos}</div>
 
@@ -837,6 +886,7 @@ export function corpoAlimentacao({ data, resumoDia, refeicoes, catalogo, todosAl
     <div class="sub">Valores por 100 g ou 100 ml, na unidade de cada alimento: calorias em kcal e macros em gramas. Edite direto na planilha — registrar no dia não altera nada aqui.</div>
     <input class="sel" id="alimCatBusca" data-k="alimcatbusca" placeholder="Buscar alimento…" aria-label="Buscar alimento" autocomplete="off" style="margin-bottom:10px">
     <div id="alimCatLista" class="lista-scroll">${htmlCatalogo()}</div>
+    ${botoesCriacao}
     ${state.alimCriar ? `<div class="frm" style="margin-top:8px">
       <div style="grid-column:1/-1"><label>Novo alimento</label><input id="alimAlNovo" placeholder="ex.: Iogurte natural" aria-label="Novo alimento"></div>
       <div style="grid-column:1/-1"><label>Unidade</label><select class="sel" id="alimUnNovo" data-k="alimunnovo" aria-label="Unidade do alimento">
@@ -847,8 +897,8 @@ export function corpoAlimentacao({ data, resumoDia, refeicoes, catalogo, todosAl
       <div><label data-rot100="Carboidrato">Carboidrato por 100 g</label><input id="alimCarbNovo" inputmode="decimal" placeholder="ex.: 4" aria-label="Carboidrato por 100 gramas ou 100 mililitros"></div>
       <div><label data-rot100="Gordura">Gordura por 100 g</label><input id="alimGordNovo" inputmode="decimal" placeholder="ex.: 9" aria-label="Gordura por 100 gramas ou 100 mililitros"></div>
     </div>
-    <div class="acoes"><button class="btn p" data-a="alrefadd">Adicionar alimento</button><button class="btn" data-a="alcancelar">Cancelar</button></div>`
-    : `<div class="acoes"><button class="btn" data-a="alcriar">Criar item</button></div>`}
+    <div class="acoes"><button class="btn p" data-a="alrefadd">Adicionar alimento</button><button class="btn" data-a="alcancelar">Cancelar</button></div>` : ''}
+    ${htmlReceita(todosAlimentos)}
   </div>
 
   <div class="card sec"><h2>Refeições</h2>

@@ -275,6 +275,37 @@ test('a linha do catálogo repete o layout do formulário de criação', () => {
   assert.match(html, /Iogurte natural/);
 });
 
+test('a linha do catálogo marca o prato e lista os ingredientes dele', () => {
+  const prato = {
+    id: 9,
+    nome: 'frango com arroz',
+    exibicao: 'Frango com arroz',
+    prato: true,
+    rende: 400,
+    vezes: 2,
+    kcal100: 160,
+    prot100: 20,
+    carb100: 15,
+    gord100: 5,
+    ingredientes: [
+      { alimento: 'Frango grelhado', gramas: 250 },
+      { alimento: 'Arroz cozido', gramas: 150 }
+    ]
+  };
+  const html = alimentacaoTela.linhaCatalogo(prato);
+
+  assert.match(html, /<span class="tag">Prato<\/span>/, 'selo de prato ao lado do nome');
+  assert.match(html, /<small>rende 400 g · 2 registros<\/small>/, 'o subtitulo diz o rendimento');
+  assert.match(html, /class="pl-ing"/, 'lista de ingredientes presente');
+  assert.match(html, /<b>Frango grelhado<\/b><small>250 g<\/small>/);
+  assert.match(html, /<b>Arroz cozido<\/b><small>150 g<\/small>/);
+  assert.match(html, /data-k="alkcal"[^>]*value="160"/, 'as referências do prato seguem editáveis');
+
+  const comum = alimentacaoTela.linhaCatalogo({ id: 3, nome: 'iogurte', exibicao: 'Iogurte', kcal100: 60, vezes: 1 });
+  assert.doesNotMatch(comum, /class="tag"|class="pl-ing"/, 'alimento comum continua sem selo e sem lista');
+  assert.match(comum, /<small>1 registro<\/small>/);
+});
+
 test('passoRolagem só rola junto às bordas e sobe ou desce conforme a borda', () => {
   const p = alimentacaoTela.passoRolagem;
   const H = 800;
@@ -362,6 +393,32 @@ test('totaisDaReceita sums the ingredients and refuses bad lists', () => {
   assert.throws(() => totaisDaReceita([{ alimento: 'X', gramas: 0 }]), /Quantidade inválida de X/);
   assert.throws(() => totaisDaReceita([{ alimento: 'X', gramas: 'abc' }]), /Quantidade inválida de X/);
   assert.throws(() => totaisDaReceita([{ alimento: 'X', gramas: 100 }]), /X não tem referências por 100 g/);
+});
+
+test('totaisDoIngrediente devolve os valores de um ingrediente do rascunho', () => {
+  const t = alimentacaoTela.totaisDoIngrediente({ gramas: 150, kcal100: 165, prot100: 31, carb100: 0, gord100: 4 });
+  assert.equal(t.kcal, 247.5);
+  assert.equal(t.prot, 46.5);
+  assert.equal(t.carb, 0);
+  assert.equal(t.gord, 6);
+
+  // sem kcal declarada, os macros 4/4/9 entram no lugar (igual a totaisDaReceita)
+  assert.equal(
+    alimentacaoTela.totaisDoIngrediente({ gramas: 100, prot100: 20, carb100: 0, gord100: 0 }).kcal,
+    80
+  );
+
+  // macro sem referência vira null e a linha simplesmente não o mostra
+  const parcial = alimentacaoTela.totaisDoIngrediente({ gramas: 100, kcal100: 120, prot100: null });
+  assert.equal(parcial.kcal, 120);
+  assert.equal(parcial.prot, null);
+
+  // quantidade inválida ou ingrediente sem referência não dá totais
+  const vazio = { kcal: 0, prot: null, carb: null, gord: null };
+  assert.deepEqual(alimentacaoTela.totaisDoIngrediente({ gramas: 0, kcal100: 100 }), vazio);
+  assert.deepEqual(alimentacaoTela.totaisDoIngrediente({ gramas: 'abc', kcal100: 100 }), vazio);
+  assert.deepEqual(alimentacaoTela.totaisDoIngrediente({ gramas: 100 }), vazio);
+  assert.deepEqual(alimentacaoTela.totaisDoIngrediente(), vazio);
 });
 
 test('salvarPrato validates the dish before the database', async () => {
@@ -492,6 +549,89 @@ test('a tela troca os campos conforme a unidade e abre o prato', () => {
     state.alimPrato = antes.alimPrato;
     state.alimUnidade = antes.alimUnidade;
     state.alimRef = antes.alimRef;
+  }
+});
+
+test('criar item e criar receita são dois botões lado a lado no catálogo', () => {
+  const base = {
+    data: '2026-03-01',
+    resumoDia: {
+      total: 0,
+      meta: null,
+      metaMacros: { prot: null, carb: null, gord: null },
+      macros: { prot: 0, carb: 0, gord: 0 },
+      porRefeicao: [{ id: 'almoco', nome: 'Almoço', total: 0, itens: [] }]
+    },
+    refeicoes: [{ id: 'almoco', nome: 'Almoço' }],
+    catalogo: { itens: [], temMais: false, total: 0 },
+    todosAlimentos: null
+  };
+  const antes = { alimPrato: state.alimPrato, alimCriar: state.alimCriar, alimUnidade: state.alimUnidade, alimNome: state.alimNome };
+  try {
+    state.alimPrato = false;
+    state.alimCriar = false;
+    state.alimUnidade = 'g';
+
+    const fechado = alimentacaoTela.corpoAlimentacao(base);
+    assert.match(fechado, /data-a="alcriar">Criar item<\/button><button class="btn" data-a="pratoabrir">Criar receita/,
+      'os dois botões seguem na mesma linha');
+    assert.doesNotMatch(fechado, /Pratos e receitas/, 'o card antigo de pratos saiu da tela');
+
+    state.alimPrato = true;
+    const aberto = alimentacaoTela.corpoAlimentacao({ ...base, todosAlimentos: [{ exibicao: 'Frango grelhado' }] });
+    assert.match(aberto, /id="pratoNome"/, 'o construtor abre no catálogo');
+    assert.match(aberto, /data-a="alcriar">Criar item/, 'criar item continua à mão');
+    assert.doesNotMatch(aberto, /data-a="pratoabrir"/, 'o botão de abrir some com o formulário aberto');
+
+    state.alimPrato = false;
+    state.alimCriar = true;
+    const criando = alimentacaoTela.corpoAlimentacao(base);
+    assert.match(criando, /id="alimAlNovo"/, 'o form de criação abre no catálogo');
+    assert.doesNotMatch(criando, /data-a="alcriar"/, 'criar item some enquanto o form está aberto');
+    assert.match(criando, /data-a="pratoabrir">Criar receita/, 'a receita continua à mão');
+    assert.doesNotMatch(criando, /id="pratoNome"/, 'o construtor de receita só abre pelo botão dele');
+  } finally {
+    state.alimPrato = antes.alimPrato;
+    state.alimCriar = antes.alimCriar;
+    state.alimUnidade = antes.alimUnidade;
+    state.alimNome = antes.alimNome;
+  }
+});
+
+test('a linha do ingrediente do prato segue o padrão das outras listas', () => {
+  const base = {
+    data: '2026-03-01',
+    resumoDia: {
+      total: 0,
+      meta: null,
+      metaMacros: { prot: null, carb: null, gord: null },
+      macros: { prot: 0, carb: 0, gord: 0 },
+      porRefeicao: [{ id: 'almoco', nome: 'Almoço', total: 0, itens: [] }]
+    },
+    refeicoes: [{ id: 'almoco', nome: 'Almoço' }],
+    catalogo: { itens: [], temMais: false, total: 0 },
+    todosAlimentos: null
+  };
+  const antes = { alimPrato: state.alimPrato, alimReceita: state.alimReceita, alimUnidade: state.alimUnidade, alimNome: state.alimNome };
+  try {
+    state.alimPrato = true;
+    state.alimUnidade = 'g';
+    state.alimReceita = {
+      nome: 'Frango com arroz',
+      itens: [{ alimento: 'Frango grelhado', gramas: 100, kcal100: 165, prot100: 31, carb100: 0, gord100: 4 }]
+    };
+    const html = alimentacaoTela.corpoAlimentacao({ ...base, todosAlimentos: [{ exibicao: 'Frango grelhado' }] });
+    assert.match(html, /<b>Frango grelhado<\/b><small>100 g · 165 kcal · P 31 g · C 0 g · G 4 g<\/small>/,
+      'mesma linha do dia: quantidade, calorias e macros');
+
+    state.alimReceita.itens.push({ alimento: 'Sal', gramas: 5, kcal100: 0, prot100: null, carb100: null, gord100: null });
+    const parcial = alimentacaoTela.corpoAlimentacao({ ...base, todosAlimentos: [{ exibicao: 'Frango grelhado' }, { exibicao: 'Sal' }] });
+    assert.match(parcial, /<b>Sal<\/b><small>5 g<\/small>/, 'sem calorias e sem macros a linha fica só com a quantidade');
+  } finally {
+    state.alimPrato = antes.alimPrato;
+    state.alimReceita = antes.alimReceita;
+    state.alimUnidade = antes.alimUnidade;
+    state.alimNome = antes.alimNome;
   }
 });
 

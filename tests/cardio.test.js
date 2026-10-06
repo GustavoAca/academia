@@ -7,6 +7,8 @@ instalarDom();
 import {
   paceDe,
   adicionarCardio,
+  tempoEmMinutos,
+  formatarTempo,
   TIPOS_COM_DISTANCIA,
   TIPOS_CARDIO
 } from '../js/cardio-service.js';
@@ -42,10 +44,41 @@ test('distance is only part of the record for walking and running', () => {
   assert.ok(TIPOS_CARDIO.includes('Corrida'));
 });
 
+const segs = v => Math.round(tempoEmMinutos(v) * 60);
+
+test('tempoEmMinutos aceita minutos, mm:ss e hh:mm:ss', () => {
+  assert.equal(segs('30'), 1800, 'número puro são minutos');
+  assert.equal(segs('30,5'), 1830, 'vírgula decimal pt-BR');
+  assert.equal(segs('03:11'), 191, 'dois-pontos são mm:ss');
+  assert.equal(segs('3:5'), 185, 'sem zero à esquerda');
+  assert.equal(segs('1:03:11'), 3791, 'três partes são hh:mm:ss');
+  assert.equal(segs('0:45'), 45);
+  assert.equal(segs('90:00'), 5400, 'mm:ss passa de uma hora');
+
+  for (const ruim of ['', '   ', null, undefined, 'abc', '03:99', '1:60:00', '1:2:3:4', ':30', '30:']) {
+    assert.ok(Number.isNaN(tempoEmMinutos(ruim)), `"${ruim}" é tempo inválido`);
+  }
+
+  assert.equal(paceDe('03:11', ''), null, 'pace continua sem distância');
+  assert.equal(paceDe('06:00', 1), '6:00', 'pace aceita o tempo no formato mm:ss');
+});
+
+test('formatarTempo mostra minutos cheios, mm:ss e hh:mm:ss', () => {
+  assert.equal(formatarTempo(30), '30 min');
+  assert.equal(formatarTempo(0), '0 min');
+  assert.equal(formatarTempo(90), '90 min', 'minutos cheios não viram hora');
+  assert.equal(formatarTempo(30.5), '30:30');
+  assert.equal(formatarTempo(191 / 60), '03:11');
+  assert.equal(formatarTempo(0.5), '00:30');
+  assert.equal(formatarTempo(3791 / 60), '01:03:11', 'acima de uma hora vira hh:mm:ss');
+  assert.equal(formatarTempo('abc'), '', 'valor inválido fica vazio');
+});
+
 test('adicionarCardio rejects bad optional fields before saving', async () => {
   const base = { data: '2026-03-01', tipo: 'Corrida', minutos: '30' };
 
-  await assert.rejects(adicionarCardio({ ...base, minutos: '' }), /Informe o tempo em minutos/);
+  await assert.rejects(adicionarCardio({ ...base, minutos: '' }), /Informe o tempo/);
+  await assert.rejects(adicionarCardio({ ...base, minutos: '03:99' }), /Informe o tempo/, 'segundo inválido');
   await assert.rejects(adicionarCardio({ ...base, distancia: 'abc' }), /distância em km/);
   await assert.rejects(adicionarCardio({ ...base, distancia: '0' }), /distância em km/);
   await assert.rejects(adicionarCardio({ ...base, distancia: '-2' }), /distância em km/);
@@ -65,7 +98,8 @@ test('cardio card renders distance, calories, notes and the pace preview', async
   store.rotina = rotinaPadrao();
 
   const html = await cardPassoCardio('f', { i: false, f: false }, []);
-  assert.match(html, /Tempo \(min\)/);
+  assert.match(html, /<label>Tempo<\/label>/);
+  assert.match(html, /03:11/, 'o placeholder ensina o formato mm:ss');
   assert.match(html, /Calorias \(kcal\)/);
   assert.match(html, /Observação/);
   assert.match(html, /data-k="ctempo"/);
@@ -98,6 +132,16 @@ test('cardio card renders distance, calories, notes and the pace preview', async
   }]);
   assert.match(htmlRegistro, /30 min · 5 km · 6:00 \/km · 350 kcal/);
   assert.match(htmlRegistro, /Bom ritmo/);
+
+  const htmlSeg = await cardPassoCardio('f', {}, [{
+    id: 7,
+    data: '2026-03-01',
+    tipo: 'Corrida',
+    minutos: 191 / 60,
+    momento: 'f'
+  }]);
+  assert.match(htmlSeg, />03:11</, 'tempo com segundos aparece como mm:ss');
+  assert.match(htmlSeg, /· 03:11 /, 'total do dia também');
 
   const htmlSemPace = await cardPassoCardio('f', {}, [{
     id: 2,

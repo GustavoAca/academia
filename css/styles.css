@@ -1256,6 +1256,32 @@ input, select, textarea {
   font-size:16px
 }
 
+/* selo e ingredientes de um prato (receita) salvo no catálogo */
+.tag {
+  flex:none;
+  padding:3px 8px;
+  border-radius:999px;
+  background:var(--acs);
+  color:var(--ac);
+  font-size:11px;
+  font-weight:700;
+  letter-spacing:.4px;
+  text-transform:uppercase
+}
+
+.pl-ing {
+  margin-top:6px
+}
+
+.pl-ing .li {
+  margin:0;
+  padding:6px 0;
+  border:0;
+  border-radius:0;
+  background:transparent;
+  font-size:13px
+}
+
 /* --- 15. Macros da meta em círculo e interruptores de ajustes ---------- */
 .macro-circs {
   display:flex;
