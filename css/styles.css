@@ -506,6 +506,17 @@ nav .c {
   color:var(--ink)
 }
 
+/* Sub-abas do Ajustes: Exibição, Foco e Rotina */
+.tabs.subtabs {
+  background:var(--card);
+  border:1px solid var(--line)
+}
+
+.tabs.subtabs button.on {
+  background:var(--acs);
+  color:var(--ac)
+}
+
 /* --- 7. Foco: chips de seleção (grupos musculares e dias por semana) --- */
 .chips {
   display:flex;

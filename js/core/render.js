@@ -11,10 +11,23 @@ import { telaDe } from './rotas.js';
 
 let filaRender = Promise.resolve();
 
+/** Main tabs. Foco and Rotina are sub-tabs of Ajustes (see subTabsAjustes). */
+const ABAS = [['treino', 'Treino'], ['med', 'Medidas'], ['alim', 'Alim.'], ['rel', 'Relatório'], ['cfg', 'Ajustes']];
+
+/** Screens grouped under the Ajustes tab. */
+const AJUSTES = ['cfg', 'foco', 'rotina'];
+
 /** Tab bar shared by every screen. */
 export function tabs() {
-  return `<div class="tabs">${[['treino', 'Treino'], ['rotina', 'Rotina'], ['foco', 'Foco'], ['med', 'Medidas'], ['alim', 'Alim.'], ['rel', 'Relatório'], ['cfg', 'Ajustes']]
-    .map(t => `<button data-a="tela" data-t="${t[0]}" class="${state.tela === t[0] ? 'on' : ''}">${t[1]}</button>`)
+  const aba = AJUSTES.includes(state.tela) ? 'cfg' : state.tela;
+  return `<div class="tabs">${ABAS.map(t => `<button data-a="tela" data-t="${t[0]}" class="${aba === t[0] ? 'on' : ''}">${t[1]}</button>`)
+    .join('')}</div>`;
+}
+
+/** Sub-tab bar of the Ajustes tab: display preferences, Foco and Rotina. */
+export function subTabsAjustes(atual) {
+  const secs = [['cfg', 'Exibição'], ['foco', 'Foco'], ['rotina', 'Rotina']];
+  return `<div class="tabs subtabs">${secs.map(([k, l]) => `<button data-a="tela" data-t="${k}" class="${atual === k ? 'on' : ''}">${l}</button>`)
     .join('')}</div>`;
 }
 

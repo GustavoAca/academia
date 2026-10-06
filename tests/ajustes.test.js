@@ -5,6 +5,9 @@ import { instalarDom } from './helpers/dom.js';
 instalarDom();
 
 import { salvarAjustes, AJUSTES_PADRAO } from '../js/ajustes-service.js';
+import { tabs, subTabsAjustes } from '../js/core/render.js';
+import { telaDe } from '../js/core/rotas.js';
+import { state } from '../js/core/estado.js';
 import { macroMeta } from '../js/telas/alimentacao.js';
 import * as configuracoes from '../js/telas/configuracoes.js';
 import * as rotinaTela from '../js/telas/rotina.js';
@@ -83,4 +86,62 @@ test('settings actions are consumed only by the configurações screen', async (
   assert.equal(await configuracoes.aoClicar('ajcircular'), true);
   assert.equal(await configuracoes.aoClicar('ajpct'), true);
   assert.equal(await configuracoes.aoClicar('outra-coisa'), false);
+});
+
+test('a barra principal tem 5 abas e Agrupa Foco e Rotina em Ajustes', () => {
+  const tela = state.tela;
+  try {
+    const html = tabs();
+    assert.equal((html.match(/data-a="tela"/g) || []).length, 5, 'cinco abas');
+    assert.doesNotMatch(html, /data-t="foco"|data-t="rotina"/, 'foco e rotina saíram da barra principal');
+    for (const t of ['treino', 'med', 'alim', 'rel', 'cfg']) {
+      assert.match(html, new RegExp(`data-t="${t}"`), `aba ${t} presente`);
+    }
+
+    state.tela = 'alim';
+    assert.match(tabs(), /data-t="alim" class="on"/);
+    assert.doesNotMatch(tabs(), /data-t="cfg" class="on"/);
+
+    for (const t of ['cfg', 'foco', 'rotina']) {
+      state.tela = t;
+      const atual = tabs();
+      assert.match(atual, /data-t="cfg" class="on"/, `${t} acende a aba Ajustes`);
+      assert.doesNotMatch(atual, /data-t="alim" class="on"/);
+    }
+  } finally {
+    state.tela = tela;
+  }
+});
+
+test('Ajustes abre com sub-abas Exibição, Foco e Rotina', () => {
+  assert.equal((subTabsAjustes('cfg').match(/data-a="tela"/g) || []).length, 3);
+  assert.match(subTabsAjustes('cfg'), />Exibição</);
+  assert.match(subTabsAjustes('cfg'), /data-t="foco"/);
+  assert.match(subTabsAjustes('cfg'), /data-t="rotina"/);
+
+  assert.match(subTabsAjustes('foco'), /data-t="foco" class="on"/);
+  assert.match(subTabsAjustes('rotina'), /data-t="rotina" class="on"/);
+  assert.doesNotMatch(subTabsAjustes('rotina'), /data-t="cfg" class="on"/);
+});
+
+test('as três telas do Ajustes renderizam a barra de sub-abas', async () => {
+  const tela = state.tela;
+  const foco = { ...state.foco };
+  try {
+    const cfg = await configuracoes.telaConfiguracoes();
+    assert.match(cfg, /class="tabs subtabs"/);
+    assert.match(cfg, /data-t="foco"/);
+
+    const rotina = rotinaTela.telaRotina();
+    assert.match(rotina, /class="tabs subtabs"/);
+    assert.match(rotina, /data-t="rotina" class="on"/);
+
+    state.foco = { passo: 1, grupos: [], dias: 4 };
+    const focoHtml = telaDe('foco').render();
+    assert.match(focoHtml, /class="tabs subtabs"/);
+    assert.match(focoHtml, /data-t="foco" class="on"/);
+  } finally {
+    state.tela = tela;
+    state.foco = foco;
+  }
 });

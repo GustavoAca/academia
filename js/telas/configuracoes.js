@@ -5,7 +5,7 @@
 
 import { state } from '../core/estado.js';
 import { salvarAjustes } from '../ajustes-service.js';
-import { render, moldura } from '../core/render.js';
+import { render, moldura, subTabsAjustes } from '../core/render.js';
 import { registrarTela } from '../core/rotas.js';
 import { aviso } from '../core/toast.js';
 
@@ -21,7 +21,7 @@ export async function telaConfiguracoes() {
     ${linha('Mostrar percentual para bater a meta', !!a.pct, 'ajpct')}
   </div>`;
 
-  return moldura('Configurações', corpo);
+  return moldura('Configurações', subTabsAjustes('cfg') + corpo);
 }
 
 /**

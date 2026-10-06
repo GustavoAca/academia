@@ -267,3 +267,24 @@ test('a linha do catálogo repete o layout do formulário de criação', () => {
   assert.match(html, /data-a="alalimdel"/, 'botão de excluir presente');
   assert.match(html, /Iogurte natural/);
 });
+
+test('passoRolagem só rola junto às bordas e cresce quanto mais perto', () => {
+  const p = alimentacaoTela.passoRolagem;
+  const H = 800;
+
+  assert.equal(p(400, H), 0, 'meio do ecrã não rola sozinho');
+  assert.equal(p(200, H), 0);
+  assert.equal(p(90, H), 0, 'fora da zona de 90px');
+  assert.equal(p(710, H), 0, 'zona inferior também começa a 90px');
+
+  assert.equal(p(0, H), 18, 'colado no topo rola no máximo');
+  assert.equal(p(H, H), 18, 'colado na base rola no máximo');
+  assert.equal(p(45, H), 9, 'meio da zona superior rola na metade');
+  assert.equal(p(H - 45, H), 9, 'meio da zona inferior rola na metade');
+
+  assert.ok(p(80, H) < p(20, H), 'quanto mais perto do topo, mais rápido');
+  assert.ok(p(H - 80, H) < p(H - 20, H), 'quanto mais perto da base, mais rápido');
+
+  assert.equal(p(-5, H), 0, 'posição inválida não rola');
+  assert.equal(p(400, 0), 0, 'sem altura conhecida não rola');
+});

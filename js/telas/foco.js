@@ -8,7 +8,7 @@ import { state, store } from '../core/estado.js';
 import { FOCOS, montarRotina } from '../orientacao-service.js';
 import { normalizar, validarRotina, rotinaPadrao } from '../rotina-service.js';
 import { cardDiaRotina, aplicarRascunho } from './rotina.js';
-import { render, moldura } from '../core/render.js';
+import { render, moldura, subTabsAjustes } from '../core/render.js';
 import { registrarTela } from '../core/rotas.js';
 import { aviso } from '../core/toast.js';
 
@@ -25,7 +25,8 @@ export function nomeFoco(id) {
  */
 function telaFoco() {
   const f = state.foco;
-  if (f.passo === 3 && store.rotinaRascunho) return moldura('Orientação de treino', focoPrevia());
+  const mold = corpo => moldura('Orientação de treino', subTabsAjustes('foco') + corpo);
+  if (f.passo === 3 && store.rotinaRascunho) return mold(focoPrevia());
 
   const chips = FOCOS.map(x => {
     const i = f.grupos.indexOf(x.id);
@@ -47,13 +48,13 @@ function telaFoco() {
     <button class="btn" data-a="foco_cancelar">Cancelar</button></div>
   </div>` : '';
 
-  if (f.passo !== 2) return moldura('Orientação de treino', passo1 + passoColar);
+  if (f.passo !== 2) return mold(passo1 + passoColar);
 
   const diasChips = [3, 4, 5, 6]
     .map(n => `<button data-a="foco_dias" data-v="${n}" class="${f.dias === n ? 'on' : ''}"><b>${n}x</b><small>por semana</small></button>`)
     .join('');
 
-  return moldura('Orientação de treino', passo1 + `<div class="card sec"><h2>Quantos dias por semana?</h2>
+  return mold(passo1 + `<div class="card sec"><h2>Quantos dias por semana?</h2>
     <div class="sub">O split é montado de acordo com a sua disponibilidade. Depois você ajusta tudo na prévia antes de aplicar.</div>
     <div class="chips">${diasChips}</div>
     <div class="acoes"><button class="btn p" data-a="foco_gerar">Gerar sugestão</button><button class="btn" data-a="foco_passo" data-v="1">Voltar</button></div>

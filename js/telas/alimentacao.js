@@ -942,7 +942,17 @@ function idsOrdem(pai) {
   return [...pai.querySelectorAll('[data-ordem]')].map(el => el.dataset.ordem);
 }
 
+/**
+ * Element under the pointer, looking through overlays (sticky header, toast):
+ * while dragging, the finger can rest on top of them and still catch the meal
+ * group or the reorder slot painted underneath.
+ */
 function elementoEm(x, y) {
+  if (typeof document.elementsFromPoint === 'function') {
+    const pilha = document.elementsFromPoint(x, y);
+    const ache = el => el && el.closest && (el.closest('[data-grupo]') || el.closest('[data-ordem]'));
+    return pilha.find(ache) || pilha[0] || null;
+  }
   return document.elementFromPoint ? document.elementFromPoint(x, y) : null;
 }
 
@@ -979,17 +989,11 @@ function aoPressionar(e) {
   }, LIMIAR_ITEM);
 }
 
-function aoMover(e) {
-  if (!arrastando) {
-    if (pressao && (Math.abs(e.clientX - pressao.x) > 8 || Math.abs(e.clientY - pressao.y) > 8)) {
-      clearTimeout(pressao.timer);
-      pressao = null;
-    }
-    return;
-  }
-  posicionarFantasma(e.clientX, e.clientY);
+/** Highlight the meal group / reorder slot under the pointer. */
+function atualizarAlvo(x, y) {
+  if (!arrastando) return;
+  const el = elementoEm(x, y);
 
-  const el = elementoEm(e.clientX, e.clientY);
   if (arrastando.tipo === 'item') {
     const grupo = el && el.closest ? el.closest('[data-grupo]') : null;
     if (arrastando.grupo !== grupo) {
@@ -1004,8 +1008,79 @@ function aoMover(e) {
   const a = arrastando;
   if (!alvo || alvo === a.origem || alvo.parentNode !== a.origem.parentNode) return;
   const r = alvo.getBoundingClientRect();
-  const depois = e.clientY > r.top + r.height / 2;
+  const depois = y > r.top + r.height / 2;
   alvo.parentNode.insertBefore(a.origem, depois ? alvo.nextSibling : alvo);
+}
+
+/* --- Rolagem automática: o ecrã acompanha o ícone arrastado até às bordas --- */
+
+const ZONA_ROLAGEM = 90; // px junto ao topo/base em que a rolagem começa
+const VEL_MAX = 18;      // px por frame mais perto da borda
+const agendar = typeof requestAnimationFrame === 'function'
+  ? requestAnimationFrame
+  : fn => setTimeout(fn, 16);
+const cancelar = typeof cancelAnimationFrame === 'function'
+  ? cancelAnimationFrame
+  : clearTimeout;
+
+const rolagem = { passo: 0, raf: 0, x: 0, y: 0 };
+
+/**
+ * Scroll step (px/frame) for a pointer at `y` on a viewport of `altura`:
+ * 0 outside the edge zones, growing up to VEL_MAX at the very edge.
+ * Pure helper (unit-tested without DOM).
+ * @param {number} y - clientY of the pointer
+ * @param {number} altura - viewport height
+ * @returns {number}
+ */
+export function passoRolagem(y, altura) {
+  if (!(altura > 0) || !(y >= 0)) return 0;
+  if (y < ZONA_ROLAGEM) return Math.max(2, Math.round(VEL_MAX * (1 - y / ZONA_ROLAGEM)));
+  const base = altura - y;
+  if (base < ZONA_ROLAGEM) return Math.max(2, Math.round(VEL_MAX * (1 - base / ZONA_ROLAGEM)));
+  return 0;
+}
+
+/** Keep the page (and therefore the drop targets) moving while the finger rests on an edge. */
+function aoRolagem() {
+  rolagem.raf = 0;
+  if (!arrastando || !rolagem.passo) return;
+  if (typeof window.scrollBy === 'function') window.scrollBy(0, rolagem.passo);
+  atualizarAlvo(rolagem.x, rolagem.y);
+  rolagem.raf = agendar(aoRolagem);
+}
+
+/** Start/stop the auto-scroll from the pointer position (called on pointermove). */
+function atualizarRolagem(x, y) {
+  rolagem.x = x;
+  rolagem.y = y;
+  const passo = passoRolagem(y, typeof window.innerHeight === 'number' ? window.innerHeight : 0);
+  if (passo === rolagem.passo) return;
+  rolagem.passo = passo;
+  if (passo && !rolagem.raf && arrastando) rolagem.raf = agendar(aoRolagem);
+  if (!passo && rolagem.raf) {
+    cancelar(rolagem.raf);
+    rolagem.raf = 0;
+  }
+}
+
+function pararRolagem() {
+  rolagem.passo = 0;
+  if (rolagem.raf) cancelar(rolagem.raf);
+  rolagem.raf = 0;
+}
+
+function aoMover(e) {
+  if (!arrastando) {
+    if (pressao && (Math.abs(e.clientX - pressao.x) > 8 || Math.abs(e.clientY - pressao.y) > 8)) {
+      clearTimeout(pressao.timer);
+      pressao = null;
+    }
+    return;
+  }
+  posicionarFantasma(e.clientX, e.clientY);
+  atualizarRolagem(e.clientX, e.clientY);
+  atualizarAlvo(e.clientX, e.clientY);
 }
 
 async function aoSoltar() {
@@ -1017,6 +1092,7 @@ async function aoSoltar() {
   if (!a) return;
   arrastando = null;
   ultimoArraste = Date.now();
+  pararRolagem();
   desligarBloqueioScroll();
   a.fantasma.remove();
   a.origem.classList.remove('arrastando');

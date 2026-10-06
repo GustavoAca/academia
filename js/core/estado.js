@@ -11,7 +11,7 @@ import { hojeISO } from './utils.js';
 
 /** Screen/navigation state. */
 export const state = {
-  tela: 'treino', // 'treino' | 'rotina' | 'foco' | 'med' | 'alim' | 'rel' | 'cfg'
+  tela: 'treino', // 'treino' | 'med' | 'alim' | 'rel' | 'cfg' | 'foco' | 'rotina' (últimos dois: sub-abas de 'cfg')
   d: 0,           // day index 0..6 (Seg..Dom)
   s: 1,           // program week 1..MAXS
   e: 0,           // exercise index within the day

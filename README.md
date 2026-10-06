@@ -92,8 +92,8 @@ node scripts/dump-biblioteca.mjs     # estado atual (cole como contexto no promp
 node scripts/validar-biblioteca.mjs  # valida formato, vocabulário e o gerador
 ```
 
-Sugestão de rotina pronta (`treino-sugerido.json`): aba **Foco** →
-"Já tenho um treino (JSON)" → colar → prévia editável → aplicar.
+Sugestão de rotina pronta (`treino-sugerido.json`): aba **Ajustes** →
+sub-aba **Foco** → "Já tenho um treino (JSON)" → colar → prévia editável → aplicar.
 
 ## Dados e backup
 

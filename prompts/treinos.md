@@ -228,7 +228,7 @@ rotina — o `sincronizarCatalogo` cria o registro em `exercises`.)
 pelo JSON devolvido (mantendo a lista, vírgulas e ordem = prioridade de rotação),
 depois rodar `node scripts/validar-biblioteca.mjs`.
 
-**Modo B (rotina completa):** no app, aba **Foco** → botão
+**Modo B (rotina completa):** no app, aba **Ajustes** → sub-aba **Foco** → botão
 **"Já tenho um treino (JSON)"** → colar o objeto devolvido → **"Carregar prévia"**
 → revisar/editar nos cards → **"Aplicar treino"**. O app normaliza e valida o
 JSON (faltam dias/nomes? ele completa ou recusa com o motivo). Exemplo pronto:

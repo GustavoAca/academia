@@ -19,7 +19,7 @@ import {
 } from '../rotina-service.js';
 import { TIPOS_CARDIO } from '../cardio-service.js';
 import { loadCatalogo, posicaoInicial } from '../core/programa.js';
-import { render, moldura } from '../core/render.js';
+import { render, moldura, subTabsAjustes } from '../core/render.js';
 import { registrarTela } from '../core/rotas.js';
 import { aviso } from '../core/toast.js';
 
@@ -98,7 +98,7 @@ export function telaRotina() {
   <div class="acoes"><button class="btn p" data-a="rsalvar">Salvar rotina</button><button class="btn" data-a="rpadrao">Restaurar padrão</button></div>
   <div class="meta" style="margin-top:8px">A semana 1 começa em ${brd(ini)}. Alterações valem de hoje em diante: os dias antigos mantêm o plano e os registros originais.</div>`;
 
-  return moldura('Minha rotina de treino', corpo);
+  return moldura('Minha rotina de treino', subTabsAjustes('rotina') + corpo);
 }
 
 /** One day card of the routine: exercises, sets, rep range and cardio. */
