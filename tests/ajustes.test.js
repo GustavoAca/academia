@@ -142,7 +142,7 @@ test('anelCaloria fica vermelho ao passar da meta e some quando desligado', () =
 
 test('kpiNoDia junta o total do dia com o gráfico da meta do lado', () => {
   const circular = kpiNoDia(400, 800, { circular: true, pct: true });
-  assert.match(circular, /<small class="kpi-rot">kcal consumido<\/small>/, 'o card do consumido é rotulado');
+  assert.match(circular, /<small class="kpi-rot[^"]*">kcal consumido<\/small>/, 'o card do consumido é rotulado');
   assert.match(circular, /<b>400 kcal<\/b>/, 'o total aparece');
   assert.match(circular, /<small class="kpi-rot">restante<\/small>/, 'o card do restante é rotulado');
   assert.match(circular, /400 kcal/, 'sobram 400 kcal');
@@ -162,7 +162,7 @@ test('kpiNoDia junta o total do dia com o gráfico da meta do lado', () => {
   assert.match(acima, /class="kpi-laranja"/, '200 kcal acima o card fica laranja');
 
   const semMeta = kpiNoDia(400, null, { circular: true, pct: true });
-  assert.match(semMeta, /<b>400 kcal<\/b>/, 'sem meta o total continua aparecendo');
+  assert.match(semMeta, /<b[^>]*>400 kcal<\/b>/, 'sem meta o total continua aparecendo');
   assert.doesNotMatch(semMeta, /restante/, 'sem meta não há card de restante');
   assert.doesNotMatch(semMeta, /gráfico/, 'sem meta não há card de gráfico');
 });

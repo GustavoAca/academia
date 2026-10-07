@@ -1303,10 +1303,18 @@ input, select, textarea {
   display:flex
 }
 
+.kpi-cinza { color: var(--mut); }
 .kpi-amar { color: var(--warn); }
 .kpi-verde { color: var(--ok); }
 .kpi-laranja { color: var(--laranja); }
 .kpi-vermelho { color: var(--err); }
+
+/* o rótulo do card do consumido segue a mesma cor do número */
+.kpi-dia small.kpi-cinza { color: var(--mut); }
+.kpi-dia small.kpi-amar { color: var(--warn); }
+.kpi-dia small.kpi-verde { color: var(--ok); }
+.kpi-dia small.kpi-laranja { color: var(--laranja); }
+.kpi-dia small.kpi-vermelho { color: var(--err); }
 
 /* --- 15. Macros da meta em círculo e interruptores de ajustes ---------- */
 .macro-circs {
@@ -1503,12 +1511,22 @@ input, select, textarea {
   white-space:nowrap
 }
 
+.barra-dia.kpi-cinza i { background:var(--mut) }
+.barra-dia.kpi-amar i { background:var(--warn) }
 .barra-dia.kpi-verde i { background:var(--ok) }
 .barra-dia.kpi-laranja i { background:var(--laranja) }
 .barra-dia.kpi-vermelho i { background:var(--err) }
 
 .anel.excedeu {
   background:conic-gradient(var(--err) calc(var(--p) * 3.6deg), var(--line) calc(var(--p) * 3.6deg))
+}
+
+.anel.kpi-cinza {
+  background:conic-gradient(var(--mut) calc(var(--p) * 3.6deg), var(--line) calc(var(--p) * 3.6deg))
+}
+
+.anel.kpi-amar {
+  background:conic-gradient(var(--warn) calc(var(--p) * 3.6deg), var(--line) calc(var(--p) * 3.6deg))
 }
 
 .anel.kpi-verde {

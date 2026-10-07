@@ -473,7 +473,7 @@ test('a tela monta o resumo com meta em cima e o dia com o gráfico do lado', ()
 
     assert.match(html, /<small class="kpi-rot">kcal meta<\/small>/, 'o resumo começa pela meta');
     assert.equal((html.match(/data-k="alimmeta"/g) || []).length, 1, 'a meta calórica aparece uma única vez');
-    assert.match(html, /<small class="kpi-rot">kcal consumido<\/small>/, 'depois vem o card do consumido');
+    assert.match(html, /<small class="kpi-rot[^"]*">kcal consumido<\/small>/, 'depois vem o card do consumido');
     assert.match(html, /<b[^>]*>1\.000 kcal<\/b>/, 'o card do consumido mostra o total');
 
     assert.match(html, /class="[^"]*kpi-laranja[^"]*/, 'o card fica laranja ao passar da meta');

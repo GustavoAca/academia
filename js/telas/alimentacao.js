@@ -221,19 +221,25 @@ export function anelCaloria(total, meta, ajustes, cor) {
 export function kpiNoDia(total, meta, ajustes, classeExtra) {
   const temMeta = meta > 0;
   const circular = !ajustes || ajustes.circular !== false;
+  const pct = temMeta ? total / meta * 100 : 0;
   const deltaKcal = temMeta ? total - meta : 0;
-  // cor compartilhada: verde até 100 acima, laranja de 101 a 200, vermelha acima de 200
-  let corClass = '';
-  if (deltaKcal > 200) corClass = 'kpi-vermelho';
-  else if (deltaKcal > 100) corClass = 'kpi-laranja';
-  else if (temMeta) corClass = 'kpi-verde';
+  // cor compartilhada: cinza até 74%, âmbar de 75% a 99%, depois regras por kcal acima da meta
+  let corClass = 'kpi-cinza';
+  if (temMeta) {
+    if (pct >= 100) {
+      if (deltaKcal > 200) corClass = 'kpi-vermelho';
+      else if (deltaKcal > 100) corClass = 'kpi-laranja';
+      else corClass = 'kpi-verde';
+    } else if (pct >= 75) {
+      corClass = 'kpi-amar';
+    }
+  }
   const grafico = !temMeta ? '' : (circular ? anelCaloria(total, meta, ajustes, corClass) : barraCaloria(total, meta, ajustes, corClass));
   const extra = classeExtra ? ' kpi-' + classeExtra : '';
-  const bClass = corClass ? ` class="${corClass}"` : '';
   // 3 cards: consumido (ao lado da meta), restante e gráfico (embaixo)
   const cardConsumido = `<div class="kpi kpi-dia${extra}">
-    <small class="kpi-rot">kcal consumido</small>
-    <b${bClass}>${f1(total)} kcal</b>
+    <small class="kpi-rot ${corClass}">kcal consumido</small>
+    <b class="${corClass}">${f1(total)} kcal</b>
   </div>`;
   const cardRestante = temMeta
     ? `<div class="kpi">
