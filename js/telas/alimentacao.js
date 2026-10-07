@@ -178,13 +178,13 @@ export function kpiDelta(total, meta) {
  * @param {{circular: boolean, pct: boolean}} ajustes - display preferences
  * @returns {string}
  */
-export function barraCaloria(total, meta, ajustes) {
+export function barraCaloria(total, meta, ajustes, cor) {
   if (!(meta > 0)) return '';
   const pct = Math.min(100, total / meta * 100);
-  const excedeu = total > meta;
   const anel = !ajustes || ajustes.circular !== false;
   const rotulo = !anel && ajustes && ajustes.pct ? `<span>${(total / meta * 100).toFixed(0)}%</span>` : '';
-  return `<div class="barra-dia"><div class="bar"><i style="width:${pct.toFixed(0)}%;background:${excedeu ? 'var(--err)' : 'var(--ok)'}"></i></div>${rotulo}</div>`;
+  const corClass = cor ? ` ${cor}` : '';
+  return `<div class="barra-dia${corClass}"><div class="bar"><i style="width:${pct.toFixed(0)}%"></i></div>${rotulo}</div>`;
 }
 
 /**
@@ -201,17 +201,9 @@ export function anelCaloria(total, meta, ajustes, cor) {
   if (!(meta > 0)) return '';
   if (ajustes && ajustes.circular === false) return '';
   const pct = total / meta * 100;
-  const cheio = total >= meta;
-  const excedeu = total > meta;
-  // determine color class based on percentage thresholds
-  let cls = '';
-  if (pct >= 200) cls = 'vermelho';
-  else if (pct >= 100) cls = 'verde';
-  else if (pct >= 75) cls = 'amar';
-  const clsClass = cls ? ` kpi-${cls}` : (excedeu ? ' ok' : (cheio ? '' : ''));
+  const clsClass = cor ? ` ${cor}` : '';
   const mostraPct = !ajustes || ajustes.pct !== false;
   const centro = mostraPct ? `${pct.toFixed(0)}%` : `${f1(total)}`;
-  const legenda = mostraPct ? `${f1(total)}/${f1(meta)} kcal` : `de ${f1(meta)} kcal`;
   return `<div class="macro-circ"><div class="anel${clsClass}" style="--p:${Math.min(100, pct).toFixed(1)}"><span>${centro}</span></div></div>`;
 }
 
@@ -227,27 +219,21 @@ export function anelCaloria(total, meta, ajustes, cor) {
  * @returns {string}
  */
 export function kpiNoDia(total, meta, ajustes, classeExtra) {
-  const delta = kpiDelta(total, meta);
   const temMeta = meta > 0;
   const circular = !ajustes || ajustes.circular !== false;
-  const pct = temMeta ? total / meta * 100 : 0;
-  // cor baseada nos thresholds: >=200 vermelho, >=100 verde, >=75 âmbar
+  const deltaKcal = temMeta ? total - meta : 0;
+  // cor compartilhada: verde até 100 acima, laranja de 101 a 200, vermelha acima de 200
   let corClass = '';
-  if (pct >= 200) corClass = 'kpi-vermelho';
-  else if (pct >= 100) corClass = 'kpi-verde';
-  else if (pct >= 75) corClass = 'kpi-amar';
-  const grafico = !temMeta ? '' : (circular ? anelCaloria(total, meta, ajustes) : barraCaloria(total, meta, ajustes));
-  const deltaTxt = delta.txt === '—'
-    ? `<small class="dia-delta">${delta.legenda}</small>`
-    : `<small class="dia-delta${delta.cls ? ' ' + delta.cls : ''}">${delta.txt} · ${delta.legenda}</small>`;
-  const neg = delta.cls ? ' ' + delta.cls : '';
+  if (deltaKcal > 200) corClass = 'kpi-vermelho';
+  else if (deltaKcal > 100) corClass = 'kpi-laranja';
+  else if (temMeta) corClass = 'kpi-verde';
+  const grafico = !temMeta ? '' : (circular ? anelCaloria(total, meta, ajustes, corClass) : barraCaloria(total, meta, ajustes, corClass));
   const extra = classeExtra ? ' kpi-' + classeExtra : '';
   const bClass = corClass ? ` class="${corClass}"` : '';
   // 3 cards: consumido (ao lado da meta), restante e gráfico (embaixo)
-  const cardConsumido = `<div class="kpi kpi-dia${neg}${extra}">
+  const cardConsumido = `<div class="kpi kpi-dia${extra}">
     <small class="kpi-rot">kcal consumido</small>
     <b${bClass}>${f1(total)} kcal</b>
-    ${deltaTxt}
   </div>`;
   const cardRestante = temMeta
     ? `<div class="kpi">

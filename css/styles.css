@@ -28,6 +28,7 @@
   --ok:#1e8a55;
   --oks:#dcf1e5;
   --warn:#c0641a;
+  --laranja:#e65100;
   --err:#d92d20;
   color-scheme:light dark
 }
@@ -44,6 +45,7 @@
     --ok:#5fd394;
     --oks:#17352a;
     --warn:#f0a35e;
+    --laranja:#ff9800;
     --err:#ff7b72
   }
 }
@@ -1303,6 +1305,7 @@ input, select, textarea {
 
 .kpi-amar { color: var(--warn); }
 .kpi-verde { color: var(--ok); }
+.kpi-laranja { color: var(--laranja); }
 .kpi-vermelho { color: var(--err); }
 
 /* --- 15. Macros da meta em círculo e interruptores de ajustes ---------- */
@@ -1500,7 +1503,23 @@ input, select, textarea {
   white-space:nowrap
 }
 
+.barra-dia.kpi-verde i { background:var(--ok) }
+.barra-dia.kpi-laranja i { background:var(--laranja) }
+.barra-dia.kpi-vermelho i { background:var(--err) }
+
 .anel.excedeu {
+  background:conic-gradient(var(--err) calc(var(--p) * 3.6deg), var(--line) calc(var(--p) * 3.6deg))
+}
+
+.anel.kpi-verde {
+  background:conic-gradient(var(--ok) calc(var(--p) * 3.6deg), var(--line) calc(var(--p) * 3.6deg))
+}
+
+.anel.kpi-laranja {
+  background:conic-gradient(var(--laranja) calc(var(--p) * 3.6deg), var(--line) calc(var(--p) * 3.6deg))
+}
+
+.anel.kpi-vermelho {
   background:conic-gradient(var(--err) calc(var(--p) * 3.6deg), var(--line) calc(var(--p) * 3.6deg))
 }
 

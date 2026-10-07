@@ -475,9 +475,8 @@ test('a tela monta o resumo com meta em cima e o dia com o gráfico do lado', ()
     assert.equal((html.match(/data-k="alimmeta"/g) || []).length, 1, 'a meta calórica aparece uma única vez');
     assert.match(html, /<small class="kpi-rot">kcal consumido<\/small>/, 'depois vem o card do consumido');
     assert.match(html, /<b[^>]*>1\.000 kcal<\/b>/, 'o card do consumido mostra o total');
-    assert.match(html, /class="dia-delta neg">-200 kcal · acima da meta</, 'passou 200 kcal da meta');
 
-    assert.match(html, /class="[^"]*kpi-dia[^"]*neg[^"]*/, 'o card fica negativo ao passar da meta');
+    assert.match(html, /class="[^"]*kpi-laranja[^"]*/, 'o card fica laranja ao passar da meta');
     assert.match(html, /class="macro-circ"/, 'com o círculo ligado o gráfico é o anel');
     assert.doesNotMatch(html, /class="barra-dia"/, 'um gráfico só: a barra não aparece junto do anel');
     assert.ok(html.indexOf('kcal meta') < html.indexOf('kcal consumido'), 'a meta vem antes do consumido');
@@ -530,7 +529,6 @@ test('a tela troca os campos conforme a unidade e abre o prato', () => {
     assert.match(un, /id="alimPeso"/, 'unidades pedem o peso médio');
     assert.doesNotMatch(un, /id="alimG"/);
     assert.match(un, /data-a="alimun" data-v="un" aria-pressed="true"/, 'unidades fica acesa');
-    assert.match(un, /<small class="dia-delta">defina uma meta diária<\/small>/, 'sem meta o card do dia explica');
     assert.doesNotMatch(un, /class="dia-graf"/, 'sem meta não sobra gráfico');
 
     state.alimUnidade = 'g';

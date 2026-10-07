@@ -103,38 +103,37 @@ test('kpiDelta mostra o que falta e marca o que passou da meta', () => {
 });
 
 test('barraCaloria enche até a meta e fica vermelha ao passar dela', () => {
-  const dentro = barraCaloria(400, 800, { circular: true, pct: true });
-  assert.match(dentro, /class="barra-dia"/);
+  const dentro = barraCaloria(400, 800, { circular: true, pct: true }, 'kpi-verde');
+  assert.match(dentro, /class="barra-dia kpi-verde"/);
   assert.match(dentro, /width:50%/);
-  assert.match(dentro, /var\(--ok\)/);
   assert.doesNotMatch(dentro, /<span>/, 'com o anel ligado o % fica no anel, não na barra');
 
-  const barra = barraCaloria(400, 800, { circular: false, pct: true });
+  const barra = barraCaloria(400, 800, { circular: false, pct: true }, 'kpi-verde');
   assert.match(barra, /<span>50%<\/span>/, 'sem anel o % aparece ao lado da barra');
 
-  const barraSem = barraCaloria(400, 800, { circular: false, pct: false });
+  const barraSem = barraCaloria(400, 800, { circular: false, pct: false }, 'kpi-verde');
   assert.doesNotMatch(barraSem, /<span>/, 'percentual desligado não mostra %');
 
-  const acima = barraCaloria(900, 800, { circular: true, pct: true });
+  const acima = barraCaloria(900, 800, { circular: true, pct: true }, 'kpi-laranja');
   assert.match(acima, /width:100%/, 'a barra nunca passa de 100%');
-  assert.match(acima, /var\(--err\)/, 'acima da meta a barra fica vermelha');
+  assert.match(acima, /class="barra-dia kpi-laranja"/, 'acima da meta a barra fica laranja');
 
   assert.equal(barraCaloria(400, null, { circular: true, pct: true }), '', 'sem meta não há barra');
 });
 
 test('anelCaloria fica vermelho ao passar da meta e some quando desligado', () => {
-  const dentro = anelCaloria(400, 800, { circular: true, pct: true });
+  const dentro = anelCaloria(400, 800, { circular: true, pct: true }, 'kpi-verde');
   assert.match(dentro, /class="macro-circ"/);
-  assert.match(dentro, /class="anel"/);
+  assert.match(dentro, /class="anel kpi-verde"/);
   assert.match(dentro, /<span>50%<\/span>/);
   assert.doesNotMatch(dentro, /excedeu/);
 
-  const cheio = anelCaloria(800, 800, { circular: true, pct: true });
+  const cheio = anelCaloria(800, 800, { circular: true, pct: true }, 'kpi-verde');
   assert.match(cheio, /class="anel kpi-verde"/, 'bater na meta (100%) deixa o anel verde');
   assert.match(cheio, /<span>100%<\/span>/);
 
-  const acima = anelCaloria(900, 800, { circular: true, pct: true });
-  assert.match(acima, /class="anel kpi-verde"/, 'passar dos 100% deixa o anel verde');
+  const acima = anelCaloria(900, 800, { circular: true, pct: true }, 'kpi-laranja');
+  assert.match(acima, /class="anel kpi-laranja"/, 'acima da meta o anel fica laranja');
   assert.match(acima, />113%/, 'centro mostra a porcentagem calculada');
 
   assert.equal(anelCaloria(400, 800, { circular: false, pct: true }), '', 'anel desligado não renderiza anel');
@@ -151,22 +150,19 @@ test('kpiNoDia junta o total do dia com o gráfico da meta do lado', () => {
   assert.doesNotMatch(circular, /class="barra-dia"/, 'não renderiza os dois gráficos ao mesmo tempo');
 
   const barra = kpiNoDia(400, 800, { circular: false, pct: true });
-  assert.match(barra, /class="barra-dia"/, 'círculo desligado o gráfico vira barra');
+  assert.match(barra, /class="barra-dia[^"]*"/, 'círculo desligado o gráfico vira barra');
   assert.match(barra, /<span>50%<\/span>/, 'a barra traz o percentual');
   assert.doesNotMatch(barra, /class="macro-circ"/);
 
   const semPct = kpiNoDia(400, 800, { circular: false, pct: false });
-  assert.match(semPct, /class="barra-dia"/);
+  assert.match(semPct, /class="barra-dia[^"]*"/);
   assert.doesNotMatch(semPct, /<span>/, 'percentual desligado não mostra %');
 
   const acima = kpiNoDia(1000, 800, { circular: true, pct: true });
-  assert.match(acima, /class="[^"]*kpi-dia[^"]*neg[^"]*/, 'passou da meta o card fica negativo');
-  assert.match(acima, /-200 kcal · acima da meta/, 'diz quanto passou da meta');
-  assert.match(acima, /class="kpi-verde"/, 'anel fica verde acima da meta');
+  assert.match(acima, /class="kpi-laranja"/, '200 kcal acima o card fica laranja');
 
   const semMeta = kpiNoDia(400, null, { circular: true, pct: true });
   assert.match(semMeta, /<b>400 kcal<\/b>/, 'sem meta o total continua aparecendo');
-  assert.match(semMeta, /class="dia-delta">defina uma meta diária</, 'pede para definir a meta');
   assert.doesNotMatch(semMeta, /restante/, 'sem meta não há card de restante');
   assert.doesNotMatch(semMeta, /gráfico/, 'sem meta não há card de gráfico');
 });
