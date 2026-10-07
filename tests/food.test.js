@@ -473,14 +473,14 @@ test('a tela monta o resumo com meta em cima e o dia com o gráfico do lado', ()
 
     assert.match(html, /<small class="kpi-rot">kcal meta<\/small>/, 'o resumo começa pela meta');
     assert.equal((html.match(/data-k="alimmeta"/g) || []).length, 1, 'a meta calórica aparece uma única vez');
-    assert.match(html, /<small class="kpi-rot">kcal no dia<\/small>/, 'depois vem o card do dia');
-    assert.match(html, /<b>1\.000 kcal<\/b>/, 'o card do dia mostra o total consumido');
+    assert.match(html, /<small class="kpi-rot">kcal consumido<\/small>/, 'depois vem o card do consumido');
+    assert.match(html, /<b[^>]*>1\.000 kcal<\/b>/, 'o card do consumido mostra o total');
     assert.match(html, /class="dia-delta neg">-200 kcal · acima da meta</, 'passou 200 kcal da meta');
 
-    assert.match(html, /class="kpi kpi-larga kpi-dia neg"/, 'o card do dia fica negativo ao passar da meta');
+    assert.match(html, /class="[^"]*kpi-dia[^"]*neg[^"]*/, 'o card fica negativo ao passar da meta');
     assert.match(html, /class="macro-circ"/, 'com o círculo ligado o gráfico é o anel');
     assert.doesNotMatch(html, /class="barra-dia"/, 'um gráfico só: a barra não aparece junto do anel');
-    assert.ok(html.indexOf('kcal meta') < html.indexOf('kcal no dia'), 'a meta vem antes do dia');
+    assert.ok(html.indexOf('kcal meta') < html.indexOf('kcal consumido'), 'a meta vem antes do consumido');
 
     assert.match(html, /<h2>Alimentos por 100 g \/ 100 ml<\/h2>/, 'o catálogo anuncia as duas referências');
 

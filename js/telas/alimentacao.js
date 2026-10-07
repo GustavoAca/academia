@@ -197,18 +197,22 @@ export function barraCaloria(total, meta, ajustes) {
  * @param {{circular: boolean, pct: boolean}} ajustes - display preferences
  * @returns {string} '' when the ring should not be drawn
  */
-export function anelCaloria(total, meta, ajustes) {
+export function anelCaloria(total, meta, ajustes, cor) {
   if (!(meta > 0)) return '';
   if (ajustes && ajustes.circular === false) return '';
   const pct = total / meta * 100;
   const cheio = total >= meta;
   const excedeu = total > meta;
-  const cls = excedeu ? 'excedeu' : (cheio ? 'ok' : '');
+  // determine color class based on percentage thresholds
+  let cls = '';
+  if (pct >= 200) cls = 'vermelho';
+  else if (pct >= 100) cls = 'verde';
+  else if (pct >= 75) cls = 'amar';
+  const clsClass = cls ? ` kpi-${cls}` : (excedeu ? ' ok' : (cheio ? '' : ''));
   const mostraPct = !ajustes || ajustes.pct !== false;
   const centro = mostraPct ? `${pct.toFixed(0)}%` : `${f1(total)}`;
   const legenda = mostraPct ? `${f1(total)}/${f1(meta)} kcal` : `de ${f1(meta)} kcal`;
-  return `<div class="macro-circ"><div class="anel${cls ? ' ' + cls : ''}" style="--p:${Math.min(100, pct).toFixed(1)}"><span>${centro}</span></div>
-    <small><b>Meta</b> · ${legenda}</small></div>`;
+  return `<div class="macro-circ"><div class="anel${clsClass}" style="--p:${Math.min(100, pct).toFixed(1)}"><span>${centro}</span></div></div>`;
 }
 
 /**
@@ -222,21 +226,42 @@ export function anelCaloria(total, meta, ajustes) {
  * @param {{circular: boolean, pct: boolean}} ajustes - display preferences
  * @returns {string}
  */
-export function kpiNoDia(total, meta, ajustes) {
+export function kpiNoDia(total, meta, ajustes, classeExtra) {
   const delta = kpiDelta(total, meta);
   const temMeta = meta > 0;
   const circular = !ajustes || ajustes.circular !== false;
+  const pct = temMeta ? total / meta * 100 : 0;
+  // cor baseada nos thresholds: >=200 vermelho, >=100 verde, >=75 âmbar
+  let corClass = '';
+  if (pct >= 200) corClass = 'kpi-vermelho';
+  else if (pct >= 100) corClass = 'kpi-verde';
+  else if (pct >= 75) corClass = 'kpi-amar';
   const grafico = !temMeta ? '' : (circular ? anelCaloria(total, meta, ajustes) : barraCaloria(total, meta, ajustes));
-  const linha = delta.txt === '—'
+  const deltaTxt = delta.txt === '—'
     ? `<small class="dia-delta">${delta.legenda}</small>`
     : `<small class="dia-delta${delta.cls ? ' ' + delta.cls : ''}">${delta.txt} · ${delta.legenda}</small>`;
   const neg = delta.cls ? ' ' + delta.cls : '';
-  return `<div class="kpi kpi-larga kpi-dia${neg}">
-    <small class="kpi-rot">kcal no dia</small>
-    <div class="dia-linha">
-      <div class="dia-txt"><b>${f1(total)} kcal</b>${linha}</div>${grafico ? `<div class="dia-graf">${grafico}</div>` : ''}
-    </div>
+  const extra = classeExtra ? ' kpi-' + classeExtra : '';
+  const bClass = corClass ? ` class="${corClass}"` : '';
+  // 3 cards: consumido (ao lado da meta), restante e gráfico (embaixo)
+  const cardConsumido = `<div class="kpi kpi-dia${neg}${extra}">
+    <small class="kpi-rot">kcal consumido</small>
+    <b${bClass}>${f1(total)} kcal</b>
+    ${deltaTxt}
   </div>`;
+  const cardRestante = temMeta
+    ? `<div class="kpi">
+    <small class="kpi-rot">restante</small>
+    <b>${f1(meta - total)} kcal</b>
+  </div>`
+    : '';
+  const cardGrafico = grafico
+    ? `<div class="kpi">
+    <small class="kpi-rot">gráfico</small>
+    ${grafico}
+  </div>`
+    : '';
+  return cardConsumido + cardRestante + cardGrafico;
 }
 
 export function novaLista() {
@@ -782,7 +807,14 @@ export function corpoAlimentacao({ data, resumoDia, refeicoes, catalogo, todosAl
 
   const meta = resumoDia.meta;
   const ajustes = state.ajustes || { circular: true, pct: true };
-  const diaKpi = kpiNoDia(resumoDia.total, meta, ajustes);
+  const total = resumoDia.total;
+  let percentual = 0;
+  let restante = 0;
+  if (meta > 0) {
+    percentual = total / meta * 100;
+    restante = meta - total;
+  }
+  const diaKpi = kpiNoDia(total, meta, ajustes);
 
   const mm = resumoDia.metaMacros || { prot: null, carb: null, gord: null };
   const mv = resumoDia.macros || { prot: 0, carb: 0, gord: 0 };
@@ -845,7 +877,7 @@ export function corpoAlimentacao({ data, resumoDia, refeicoes, catalogo, todosAl
   const corpo = `<div class="card sec"><h2>Resumo do dia</h2>
     <input type="date" class="sel" data-k="alimdata" value="${data}" style="margin-bottom:12px" aria-label="Data do registro">
     <div class="kpis">
-      <div class="kpi kpi-larga"><small class="kpi-rot">kcal meta</small>
+      <div class="kpi"><small class="kpi-rot">kcal meta</small>
         <input data-k="alimmeta" inputmode="decimal" value="${meta !== null ? String(meta).replace('.', ',') : ''}" placeholder="ex.: 2200" aria-label="Meta calórica diária"></div>
       ${diaKpi}
     </div>

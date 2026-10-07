@@ -1282,6 +1282,29 @@ input, select, textarea {
   font-size:13px
 }
 
+/* indicadores do resumo diário */
+.dia-resumo {
+  margin-top:6px;
+  font-size:13px;
+  color:var(--mut);
+}
+.dia-barra {
+  height:4px;
+  background:var(--line);
+  margin-top:4px;
+  border-radius:2px;
+}
+
+/* estrutura em 2 linhas com elementos lado a lado */
+.dia-linha-superior,
+.dia-linha-inferior {
+  display:flex
+}
+
+.kpi-amar { color: var(--warn); }
+.kpi-verde { color: var(--ok); }
+.kpi-vermelho { color: var(--err); }
+
 /* --- 15. Macros da meta em círculo e interruptores de ajustes ---------- */
 .macro-circs {
   display:flex;
