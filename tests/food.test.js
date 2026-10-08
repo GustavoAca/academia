@@ -490,7 +490,7 @@ test('a tela monta o resumo com meta em cima e o dia com o gráfico do lado', ()
     assert.doesNotMatch(html, /id="alimQtd"/);
 
     assert.match(html, /data-a="pratoabrir"/, 'o prato começa fechado');
-    assert.doesNotMatch(html, /id="pratoLista"/, 'sem datalist sem prato aberto');
+    assert.doesNotMatch(html, /id="pratoIng"/, 'sem campo de ingrediente sem prato aberto');
   } finally {
     state.alimPrato = antes.alimPrato;
     state.alimUnidade = antes.alimUnidade;
@@ -533,12 +533,17 @@ test('a tela troca os campos conforme a unidade e abre o prato', () => {
 
     state.alimUnidade = 'g';
     state.alimPrato = true;
-    const prato = alimentacaoTela.corpoAlimentacao({
-      ...base,
-      todosAlimentos: [{ exibicao: 'Frango grelhado' }, { exibicao: 'Arroz cozido' }]
-    });
-    assert.match(prato, /<datalist id="pratoLista">/, 'o prato abre com a lista de ingredientes');
-    assert.match(prato, /<option value="Frango grelhado">/);
+    const prato = alimentacaoTela.corpoAlimentacao(base);
+    assert.match(
+      prato,
+      /<input id="pratoIng"[^>]*aria-autocomplete="list"[^>]*>/,
+      'o campo de ingrediente é um type-ahead como o do registro'
+    );
+    assert.match(prato, /<div id="pratoSug" class="pop" role="listbox" hidden>/, 'a caixa de sugestões existe e começa fechada');
+    assert.doesNotMatch(prato, /<datalist/, 'a lista nativa saiu em favor da busca por nome');
+    const stPrato = alimentacaoTela.listaSugestoesPrato();
+    assert.equal(stPrato.pronto, true, 'as opções já vêm semeadas, igual ao campo Alimento');
+    assert.equal(stPrato.aberto, false, 'a caixa só abre ao focar o campo');
     assert.match(prato, /data-a="pratoadd"/, 'botão de somar ingrediente');
     assert.match(prato, /data-a="pratosalvar"/, 'botão de salvar o prato');
     assert.match(prato, /data-a="pratocancelar"/);
@@ -547,6 +552,37 @@ test('a tela troca os campos conforme a unidade e abre o prato', () => {
     state.alimPrato = antes.alimPrato;
     state.alimUnidade = antes.alimUnidade;
     state.alimRef = antes.alimRef;
+  }
+});
+
+test('a busca de ingredientes do prato segue o mesmo type-ahead do registro', async () => {
+  const st = alimentacaoTela.listaSugestoesPrato();
+  const antes = { itens: st.itens, termo: st.termo, carregando: st.carregando, pronto: st.pronto };
+  try {
+    st.termo = 'frango';
+    st.carregando = false;
+    st.itens = [{ exibicao: 'Frango grelhado', kcal100: 165, prot100: 31, vezes: 3 }];
+    const html = alimentacaoTela.htmlSugestoesPrato();
+    assert.match(html, /data-a="pratoingsel"/, 'cada linha escolhe ingrediente para o prato');
+    assert.match(html, /data-n="Frango grelhado"/, 'a linha carrega o nome exato do catálogo');
+    assert.match(html, /165 kcal\/100 g · P31 · 3 registros/, 'mostra referência e uso como as outras sugestões');
+
+    st.itens = [];
+    st.termo = 'xyz';
+    assert.match(alimentacaoTela.htmlSugestoesPrato(), /Nenhum ingrediente encontrado no catálogo/);
+
+    st.termo = '';
+    assert.match(alimentacaoTela.htmlSugestoesPrato(), /Nenhum alimento no catálogo ainda/);
+
+    // clicar na linha preenche o campo sem depender do banco (DOM de teste vazio)
+    assert.equal(await alimentacaoTela.aoClicar('pratoingsel', { dataset: { n: 'Frango grelhado' } }), true);
+    assert.equal(await alimentacaoTela.aoDigitar(eventoCampo({ k: 'pratoIng' }, 'fran')), true,
+      'digitar dispara a busca por nome');
+  } finally {
+    st.itens = antes.itens;
+    st.termo = antes.termo;
+    st.carregando = antes.carregando;
+    st.pronto = antes.pronto;
   }
 });
 

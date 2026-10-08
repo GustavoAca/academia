@@ -25,7 +25,6 @@ import {
   salvarUnidadeAlimento,
   unidadeDoAlimento,
   buscarCatalogo,
-  getCatalogo,
   totaisDaReceita,
   salvarPrato,
   totalGramas,
@@ -262,19 +261,26 @@ export function novaLista() {
 
 let sugState = novaLista(); // drop-down that opens from the "Alimento" field
 let catState = novaLista(); // "Alimentos por 100 g" list
+let pratoSugState = novaLista(); // drop-down that opens from the dish "Ingrediente" field
 let timerSug = null;
 let timerCat = null;
+let timerPratoSug = null;
 
 /** State of the type-ahead list (read by the keyboard/scroll handlers). */
 export const listaSugestoes = () => sugState;
 
-/** Forget both lists (called whenever the screen is re-rendered). */
+/** State of the dish ingredient type-ahead list. */
+export const listaSugestoesPrato = () => pratoSugState;
+
+/** Forget every list (called whenever the screen is re-rendered). */
 export function resetarListas() {
   clearTimeout(timerSug);
   clearTimeout(timerCat);
-  timerSug = timerCat = null;
+  clearTimeout(timerPratoSug);
+  timerSug = timerCat = timerPratoSug = null;
   sugState = novaLista();
   catState = novaLista();
+  pratoSugState = novaLista();
 }
 
 /** True when a scrollable box is close enough to its bottom to load more. */
@@ -282,14 +288,20 @@ export function semFim(el, margem) {
   return el.scrollHeight - el.scrollTop - el.clientHeight <= (margem || 60);
 }
 
-function linhaSugestao(f) {
+/**
+ * One row of a type-ahead list: name, per-100 reference and usage count.
+ * @param {Object} f - food of the row
+ * @param {string} [acao] - click action that picks the row
+ * @returns {string}
+ */
+function linhaSugestao(f, acao) {
   const nome = f.exibicao || f.nome || '';
   const ref = f.kcal100 !== null && f.kcal100 !== undefined && Number(f.kcal100) > 0
     ? `${f1(f.kcal100)} kcal/100 ${unidadeDoAlimento(f)}`
     : 'sem referência';
   const macros = macros100Txt(f);
   const usos = `${f.vezes || 0} registro${(f.vezes || 0) === 1 ? '' : 's'}`;
-  return `<button type="button" class="li" data-a="alimsel" data-n="${esc(nome)}"><span class="n"><b>${esc(nome)}</b><small>${ref}${macros ? ' · ' + macros : ''} · ${usos}</small></span></button>`;
+  return `<button type="button" class="li" data-a="${acao || 'alimsel'}" data-n="${esc(nome)}"><span class="n"><b>${esc(nome)}</b><small>${ref}${macros ? ' · ' + macros : ''} · ${usos}</small></span></button>`;
 }
 
 export function linhaCatalogo(f) {
@@ -327,9 +339,20 @@ export function linhaCatalogo(f) {
 export function htmlSugestoes() {
   const st = sugState;
   const corpo = st.itens.length
-    ? st.itens.map(linhaSugestao).join('')
+    ? st.itens.map(f => linhaSugestao(f, 'alimsel')).join('')
     : `<div class="meta" style="padding:12px">${st.termo
       ? 'Nenhum alimento encontrado — o texto digitado pode ser registrado assim mesmo.'
+      : 'Nenhum alimento no catálogo ainda — digite o nome.'}</div>`;
+  return corpo + (st.carregando ? '<div class="meta" style="text-align:center;padding:8px">Carregando…</div>' : '');
+}
+
+/** Same as htmlSugestoes, for the dish "Ingrediente" field. */
+export function htmlSugestoesPrato() {
+  const st = pratoSugState;
+  const corpo = st.itens.length
+    ? st.itens.map(f => linhaSugestao(f, 'pratoingsel')).join('')
+    : `<div class="meta" style="padding:12px">${st.termo
+      ? 'Nenhum ingrediente encontrado no catálogo.'
       : 'Nenhum alimento no catálogo ainda — digite o nome.'}</div>`;
   return corpo + (st.carregando ? '<div class="meta" style="text-align:center;padding:8px">Carregando…</div>' : '');
 }
@@ -351,6 +374,14 @@ function pintarSugestoes(reset) {
   if (!box) return;
   const top = box.scrollTop;
   box.innerHTML = htmlSugestoes();
+  box.scrollTop = reset ? 0 : top;
+}
+
+function pintarPratoSug(reset) {
+  const box = document.getElementById('pratoSug');
+  if (!box) return;
+  const top = box.scrollTop;
+  box.innerHTML = htmlSugestoesPrato();
   box.scrollTop = reset ? 0 : top;
 }
 
@@ -391,6 +422,35 @@ export async function carregarSugestoes(reset) {
   }
 }
 
+/**
+ * Fetch one page of the dish ingredient list and merge it into the state.
+ * A stale request (a newer search already started) is discarded.
+ * @param {boolean} reset - restart the list from the first page
+ */
+export async function carregarPratoSug(reset) {
+  const st = pratoSugState;
+  if (st.carregando && !reset) return;
+  const termo = st.termo;
+  const offset = reset ? 0 : st.offset;
+  const seq = ++st.seq;
+  st.carregando = true;
+  pintarPratoSug(reset);
+  try {
+    const r = await buscarCatalogo(termo, offset, TAM_PAGINA);
+    if (seq !== st.seq || st !== pratoSugState) return;
+    st.itens = reset ? r.itens : st.itens.concat(r.itens);
+    st.offset = offset + r.itens.length;
+    st.temMais = r.temMais;
+    st.total = r.total;
+    st.pronto = true;
+  } finally {
+    if (seq === st.seq && st === pratoSugState) {
+      st.carregando = false;
+      pintarPratoSug(reset);
+    }
+  }
+}
+
 /** Same as carregarSugestoes, for the "Alimentos por 100 g" list. */
 export async function carregarCatalogo(reset) {
   const st = catState;
@@ -423,6 +483,15 @@ export function agendaSugestoes(termo) {
   timerSug = setTimeout(() => carregarSugestoes(true), 150);
 }
 
+/** Debounced search of the dish ingredient list (keeps the field focus). */
+export function agendaPratoSug(termo) {
+  pratoSugState.termo = termo;
+  clearTimeout(timerPratoSug);
+  timerPratoSug = setTimeout(() => {
+    carregarPratoSug(true).catch(err => console.error('Erro ao buscar ingredientes:', err));
+  }, 150);
+}
+
 /** Debounced search of the "Alimentos por 100 g" list (keeps the focus). */
 export function agendaCatalogo(termo) {
   catState.termo = termo;
@@ -431,19 +500,26 @@ export function agendaCatalogo(termo) {
 }
 
 /**
- * Cap the drop-down so it always ends above the "Adicionar" button: the list
- * covers the fields below the Alimento input but never the button.
+ * Cap a drop-down so it ends above an action bar below its field: the list may
+ * cover the fields under the input but never a button it can fit above (when
+ * the nearest bar leaves too little room, the next one is tried).
+ * @param {string} [boxId] - id of the .pop box (defaults to the Alimento one)
  */
-export function ajustarAlturaPop() {
-  const box = document.getElementById('alimSug');
+export function ajustarAlturaPop(boxId) {
+  const box = document.getElementById(boxId || 'alimSug');
   const wrap = box && box.closest('.alim-wrap');
   if (!box || !wrap) return;
   box.style.maxHeight = '';
   const card = wrap.closest('.card');
-  const acoes = card && card.querySelector('.acoes');
-  if (!acoes) return;
   const topo = wrap.getBoundingClientRect().bottom + 6;
-  const disponivel = acoes.getBoundingClientRect().top - 8 - topo;
+  const acoes = card
+    ? Array.from(card.querySelectorAll('.acoes'))
+      .filter(el => el.getBoundingClientRect().top > topo)
+      .find(el => el.getBoundingClientRect().top - 8 - topo > 96)
+    : null;
+  if (!acoes) return;
+  const teto = Math.min(300, Math.round((window.innerHeight || 760) * 0.46)); // mesmo limite do CSS
+  const disponivel = Math.min(acoes.getBoundingClientRect().top - 8 - topo, teto);
   if (disponivel > 96) box.style.maxHeight = `${Math.floor(disponivel)}px`;
 }
 
@@ -471,6 +547,32 @@ export function fecharSugestoes() {
   if (box) box.hidden = true;
   const nomeEl = document.getElementById('alimNome');
   if (nomeEl) nomeEl.setAttribute('aria-expanded', 'false');
+}
+
+/** Open the drop-down under the dish "Ingrediente" field, loading its first page. */
+export async function abrirPratoSug() {
+  const box = document.getElementById('pratoSug');
+  if (!box || pratoSugState.aberto) return;
+  const ingEl = document.getElementById('pratoIng');
+  pratoSugState.aberto = true;
+  box.hidden = false;
+  if (ingEl) ingEl.setAttribute('aria-expanded', 'true');
+  ajustarAlturaPop('pratoSug');
+  const termo = ingEl ? ingEl.value : '';
+  if (!pratoSugState.pronto || pratoSugState.termo !== termo) {
+    pratoSugState.termo = termo;
+    await carregarPratoSug(true);
+  } else {
+    pintarPratoSug(false);
+  }
+}
+
+export function fecharPratoSug() {
+  pratoSugState.aberto = false;
+  const box = document.getElementById('pratoSug');
+  if (box) box.hidden = true;
+  const ingEl = document.getElementById('pratoIng');
+  if (ingEl) ingEl.setAttribute('aria-expanded', 'false');
 }
 
 /**
@@ -535,6 +637,15 @@ export async function escolherSugestao(nome) {
   await atualizarAlimAuto(true).catch(err => console.error('Erro ao calcular calorias:', err));
   const alvo = document.getElementById('alimG') || document.getElementById('alimQtd');
   if (alvo) alvo.focus();
+}
+
+/** Fill the dish ingredient field from a suggestion and move on to the grams. */
+export function escolherIngrediente(nome) {
+  fecharPratoSug();
+  const ingEl = document.getElementById('pratoIng');
+  if (ingEl) ingEl.value = nome || '';
+  const gEl = document.getElementById('pratoG');
+  if (gEl) gEl.focus();
 }
 
 /**
@@ -708,22 +819,15 @@ export function totaisReceitaTxt(itens) {
 /**
  * Recipe builder living inside the catalog card: '' while it is closed and
  * the form (ingredients, totals, save/cancel) while it is open — the button
- * that opens it sits next to "Criar item".
- * @param {Array|null} alimentos - whole catalog, for the ingredient list
+ * that opens it sits next to "Criar item". The ingredient field searches the
+ * catalog by name through the same type-ahead used by the register form.
  * @returns {string}
  */
-function htmlReceita(alimentos) {
+function htmlReceita() {
   const r = state.alimReceita || { nome: '', itens: [] };
   const itens = Array.isArray(r.itens) ? r.itens : [];
 
   if (!state.alimPrato) return '';
-
-  const lista = Array.isArray(alimentos) ? alimentos : [];
-  const opcoes = lista
-    .slice()
-    .sort((a, b) => String(a.exibicao || a.nome).localeCompare(String(b.exibicao || b.nome), 'pt-BR'))
-    .map(f => `<option value="${esc(f.exibicao || f.nome)}"></option>`)
-    .join('');
   // a linha do ingrediente segue o padrão das outras listas da tela:
   // "Frango grelhado / 150 g · 247 kcal · P 30 g · C 0 g · G 5 g"
   const linhas = itens.map((ing, ix) => {
@@ -741,7 +845,11 @@ function htmlReceita(alimentos) {
     <div class="sub">Some os ingredientes uma vez: o prato entra no catálogo e passa a ser registrado em um toque.</div>
     <div class="frm">
       <div style="grid-column:1/-1"><label>Nome do prato</label><input id="pratoNome" data-k="pratoNome" value="${esc(r.nome || '')}" placeholder="ex.: Frango com arroz" aria-label="Nome do prato"></div>
-      <div style="grid-column:1/-1"><label>Ingrediente</label><input id="pratoIng" data-k="pratoIng" list="pratoLista" value="" placeholder="ex.: Frango grelhado" aria-label="Ingrediente do prato" autocomplete="off"><datalist id="pratoLista">${opcoes}</datalist></div>
+      <div class="alim-wrap">
+        <label>Ingrediente</label>
+        <input id="pratoIng" data-k="pratoIng" value="" placeholder="ex.: Frango grelhado" aria-label="Ingrediente do prato" autocomplete="off" enterkeyhint="next" aria-autocomplete="list" aria-expanded="false" aria-controls="pratoSug">
+        <div id="pratoSug" class="pop" role="listbox" hidden></div>
+      </div>
       <div style="grid-column:1/-1"><label>Gramas do ingrediente</label><input id="pratoG" data-k="pratoG" inputmode="decimal" placeholder="ex.: 150" aria-label="Gramas do ingrediente"></div>
     </div>
     <div class="acoes"><button class="btn" data-a="pratoadd">Adicionar ingrediente</button></div>
@@ -754,20 +862,17 @@ function htmlReceita(alimentos) {
 /** Full HTML of the Alimentação screen. */
 export async function telaAlimentacao() {
   const data = state.alim;
-  const pratoAberto = !!state.alimPrato;
-  const [resumoDia, refeicoes, primeira, todosAlimentos] = await Promise.all([
+  const [resumoDia, refeicoes, primeira] = await Promise.all([
     resumoDoDia(data),
     getRefeicoes(),
-    buscarCatalogo('', 0, TAM_PAGINA),
-    pratoAberto ? getCatalogo() : Promise.resolve(null)
+    buscarCatalogo('', 0, TAM_PAGINA)
   ]);
 
   return moldura('Alimentação', corpoAlimentacao({
     data,
     resumoDia,
     refeicoes,
-    catalogo: primeira,
-    todosAlimentos
+    catalogo: primeira
   }));
 }
 
@@ -779,10 +884,9 @@ export async function telaAlimentacao() {
  * @param {Object} p.resumoDia - day summary (total, meta, macros, porRefeicao)
  * @param {Array} p.refeicoes - meals of the plan
  * @param {{itens: Array, temMais: boolean, total: number}} p.catalogo - first catalog page
- * @param {Array|null} p.todosAlimentos - whole catalog, only when the dish builder is open
  * @returns {string}
  */
-export function corpoAlimentacao({ data, resumoDia, refeicoes, catalogo, todosAlimentos }) {
+export function corpoAlimentacao({ data, resumoDia, refeicoes, catalogo }) {
   resetarListas();
   const primeira = catalogo;
 
@@ -796,6 +900,11 @@ export function corpoAlimentacao({ data, resumoDia, refeicoes, catalogo, todosAl
   catState.temMais = primeira.temMais;
   catState.total = primeira.total;
   catState.pronto = true;
+  pratoSugState.itens = primeira.itens;
+  pratoSugState.offset = primeira.itens.length;
+  pratoSugState.temMais = primeira.temMais;
+  pratoSugState.total = primeira.total;
+  pratoSugState.pronto = true;
 
   const meta = resumoDia.meta;
   const ajustes = state.ajustes || { circular: true, pct: true };
@@ -922,7 +1031,7 @@ export function corpoAlimentacao({ data, resumoDia, refeicoes, catalogo, todosAl
       <div><label data-rot100="Gordura">Gordura por 100 g</label><input id="alimGordNovo" inputmode="decimal" placeholder="ex.: 9" aria-label="Gordura por 100 gramas ou 100 mililitros"></div>
     </div>
     <div class="acoes"><button class="btn p" data-a="alrefadd">Adicionar alimento</button><button class="btn" data-a="alcancelar">Cancelar</button></div>` : ''}
-    ${htmlReceita(todosAlimentos)}
+    ${htmlReceita()}
   </div>
 
   <div class="card sec"><h2>Refeições</h2>
@@ -1207,6 +1316,11 @@ export async function aoClicar(a, b) {
     return true;
   }
 
+  if (a === 'pratoingsel') {
+    escolherIngrediente(b.dataset.n || '');
+    return true;
+  }
+
   if (a === 'pratoadd') {
     try {
       const nomeEl = document.getElementById('pratoIng');
@@ -1303,7 +1417,12 @@ export async function aoDigitar(el) {
     return true;
   }
 
-  if (k === 'pratoIng' || k === 'pratoG') {
+  if (k === 'pratoIng') {
+    agendaPratoSug(el.value);
+    return true;
+  }
+
+  if (k === 'pratoG') {
     return true;
   }
 
@@ -1430,17 +1549,25 @@ export async function aoMudar(el) {
 export function registrarEventosLista() {
   document.addEventListener('focusin', ev => {
     const el = ev.target;
-    if (el && el.id === 'alimNome') {
+    if (!el) return;
+    if (el.id === 'alimNome') {
       abrirSugestoes().catch(err => console.error('Erro ao abrir sugestões:', err));
+    } else if (el.id === 'pratoIng') {
+      abrirPratoSug().catch(err => console.error('Erro ao abrir sugestões do prato:', err));
     }
   });
 
-  // Close the drop-down when tapping anywhere outside the Alimento field.
+  // Close each drop-down when tapping anywhere outside its own field.
   document.addEventListener('click', ev => {
-    if (!sugState.aberto) return;
     const alvo = ev.target;
-    if (alvo && alvo.closest && alvo.closest('.alim-wrap')) return;
-    fecharSugestoes();
+    if (!alvo || !alvo.closest) return;
+    const dentro = id => {
+      const box = document.getElementById(id);
+      const wrap = box && box.closest('.alim-wrap');
+      return !!wrap && alvo.closest('.alim-wrap') === wrap;
+    };
+    if (sugState.aberto && !dentro('alimSug')) fecharSugestoes();
+    if (pratoSugState.aberto && !dentro('pratoSug')) fecharPratoSug();
   });
 
   // Pagination by dragging: the next page is fetched near the bottom of a list.
@@ -1453,6 +1580,12 @@ export function registrarEventosLista() {
       }
       return;
     }
+    if (t.id === 'pratoSug') {
+      if (pratoSugState.temMais && !pratoSugState.carregando && semFim(t)) {
+        carregarPratoSug(false).catch(err => console.error('Erro ao carregar sugestões do prato:', err));
+      }
+      return;
+    }
     if (t.id === 'alimCatLista') {
       if (catState.temMais && !catState.carregando && semFim(t)) {
         carregarCatalogo(false).catch(err => console.error('Erro ao carregar catálogo:', err));
@@ -1460,9 +1593,10 @@ export function registrarEventosLista() {
     }
   }, true);
 
-  // The drop-down height depends on the space left above the "Adicionar" button.
+  // The drop-down height depends on the space left above the action button.
   window.addEventListener('resize', () => {
-    if (sugState.aberto) ajustarAlturaPop();
+    if (sugState.aberto) ajustarAlturaPop('alimSug');
+    if (pratoSugState.aberto) ajustarAlturaPop('pratoSug');
   });
 }
 
@@ -1484,6 +1618,18 @@ export function tratarTecladoLista(e) {
     e.preventDefault();
     escolherSugestao(sugState.itens[0].exibicao || sugState.itens[0].nome || '')
       .catch(err => console.error('Erro ao escolher sugestão:', err));
+    return true;
+  }
+
+  if (e.key === 'Escape' && pratoSugState.aberto) {
+    fecharPratoSug();
+    if (t && t.id === 'pratoIng') t.blur();
+    return true;
+  }
+
+  if (e.key === 'Enter' && t && t.id === 'pratoIng' && pratoSugState.aberto && pratoSugState.itens.length) {
+    e.preventDefault();
+    escolherIngrediente(pratoSugState.itens[0].exibicao || pratoSugState.itens[0].nome || '');
     return true;
   }
 
